@@ -997,7 +997,7 @@ function CambioPasswordModal({ username, isMaster, onClose }) {
 }
 
 // ── APP PRINCIPALE ────────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const [session, setSession] = useState(null);
   const [activeSection, setActiveSection] = useState("razze");
   const [entries, setEntries] = useState({});
