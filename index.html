@@ -10,6 +10,1023 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="app.jsx" type="text/babel"></script>
+<script type="text/babel">
+
+const { useState, useEffect, useRef } = React;
+
+const SECTIONS = [
+  { id: "razze", label: "Razze", icon: "🧬" },
+  { id: "storia", label: "Eventi & Storia", icon: "📜" },
+  { id: "campagna", label: "Campagna", icon: "🌌" },
+  { id: "pg", label: "PG", icon: "⚔️" },
+  { id: "png", label: "PNG", icon: "🎭" },
+  { id: "artefatti", label: "Artefatti & Oggetti", icon: "💎" },
+  { id: "fazioni", label: "Sottofazioni & Sottotrame", icon: "🕸️" },
+  { id: "eventi", label: "Eventi Importanti", icon: "⚡" },
+  { id: "missioni", label: "Missioni Secondarie", icon: "🗺️" },
+  { id: "diario", label: "Diario di Bordo", icon: "📓" },
+  { id: "manuale", label: "Manuale", icon: "📖" },
+];
+
+const RAZZE_META = [
+  { match: ["fdsu","federazione","umana"], nome: "Federazione Democratica Stellare Umana", short: "FDSU", colore: "#c8a84b", glow: "rgba(200,168,75,0.18)", bg: "rgba(200,168,75,0.07)", icona: "☀", motto: "«Per la luce dell'Uomo, per la volontà dell'Unico.»" },
+  { match: ["eldari","verdereame","impero eldari"], nome: "Impero Eldari del Verdereame", short: "Eldari", colore: "#3aaa6a", glow: "rgba(58,170,106,0.18)", bg: "rgba(58,170,106,0.07)", icona: "✦", motto: "Ordine è esistenza. Esistenza è equilibrio." },
+  { match: ["skathari","therminid","alveare"], nome: "Therminid — L'Alveare del Nutrimento", short: "Skathari", colore: "#00c8b0", glow: "rgba(0,200,176,0.18)", bg: "rgba(0,200,176,0.07)", icona: "⬡", motto: "Non regnano. Esistono, e nel loro esistere tutto trova ordine." },
+  { match: ["orwroth","imperium orwroth","orchi"], nome: "Imperium Orwroth", short: "Orwroth", colore: "#cc3333", glow: "rgba(204,51,51,0.18)", bg: "rgba(204,51,51,0.07)", icona: "⚔", motto: "Dal sangue nacque il ferro. Dal ferro, il serpente." },
+  { match: ["avia ra","aviara","avia-ra","impero avia"], nome: "Impero Avia Ra", short: "Avia Ra", colore: "#d4922a", glow: "rgba(212,146,42,0.18)", bg: "rgba(212,146,42,0.07)", icona: "◈", motto: "Nati per volare, per dominare, per servire il vento." },
+  { match: ["vect","figli del metallo"], nome: "I Vect — Figli del Metallo e della Memoria", short: "Vect", colore: "#00b4d8", glow: "rgba(0,180,216,0.18)", bg: "rgba(0,180,216,0.07)", icona: "⊕", motto: "Siamo i figli del metallo e della memoria." },
+  { match: ["enarchi","specie primordiale"], nome: "Gli Enarchi — La Specie Primordiale", short: "Enarchi", colore: "#88aaff", glow: "rgba(136,170,255,0.18)", bg: "rgba(136,170,255,0.07)", icona: "∞", motto: "Prima che le stelle imparassero a bruciare, noi già pensavamo." },
+  { match: ["avalon","flottiglia","reame forgiato","gnomi","nani"], nome: "Flottiglia di Avalon — Il Reame Forgiato", short: "Avalon", colore: "#d4af37", glow: "rgba(212,175,55,0.18)", bg: "rgba(212,175,55,0.07)", icona: "⚙", motto: "Siamo rimasti senza una terra, ma abbiamo ancora il cielo." },
+];
+
+const STORAGE_KEY = "dm_dark_matter_v2";
+const DIARIO_KEY = "dm_diario_v1";
+const PG_PRES_KEY = "dm_pg_presentazioni_v1";
+
+const getRazzaMeta = (t) => { if (!t) return null; const l = t.toLowerCase(); return RAZZE_META.find(r => r.match.some(k => l.includes(k))) || null; };
+const mkEntry = () => ({ id: Date.now().toString() + Math.random().toString(36).slice(2), title: "", publicContent: "", privateContent: "", createdAt: new Date().toISOString() });
+const mkId = () => Date.now().toString() + Math.random().toString(36).slice(2);
+const fixText = (s) => s.replace(/[ \t]{2,}/g, " ").replace(/\.([A-ZÀ-Ö])/g, ". $1").replace(/,([A-Za-zÀ-ö])/g, ", $1").trim();
+const stripMD = (s) => s.replace(/^#{1,4}\s+/gm, "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/\*(.+?)\*/g, "$1").trim();
+const inlineFmt = (t) => t.replace(/\*\*(.+?)\*\*/g, "<strong style='color:#e2d9f3'>$1</strong>").replace(/\*(.+?)\*/g, "<em style='color:#a78bfa'>$1</em>").replace(/`(.+?)`/g, "<code style='background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:4px;font-size:12px;color:#7dd3fc'>$1</code>");
+
+async function loadPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  return window.pdfjsLib;
+}
+async function extractPdf(file) {
+  const lib = await loadPdfJs(), pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  let txt = "";
+  for (let i = 1; i <= pdf.numPages; i++) { const pg = await pdf.getPage(i), c = await pg.getTextContent(); txt += c.items.map(x => x.str).join(" ") + "\n\n"; }
+  return txt.trim();
+}
+const readFile = (f) => (f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf") ? extractPdf(f) : f.text();
+
+function parseSections(text) {
+  if (!text) return [];
+  const clean = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (clean.includes("===")) {
+    const secs = [], parts = clean.split(/===([^=\r\n]+)===/);
+    for (let i = 1; i < parts.length; i += 2) {
+      const titolo = parts[i].trim(), contenuto = (parts[i + 1] || "").trim().replace(/###([^#\r\n]+)###/g, "\n### $1\n");
+      if (titolo && contenuto) secs.push({ titolo, contenuto });
+    }
+    if (secs.length) return secs;
+  }
+  let t = clean.replace(/[ \t]{2,}/g, " ").trim();
+  const secs = [], matches = [];
+  const pat = /(?:^|\n)(Macrogruppo\s*\d+\s*[–—-]+\s*[^\n]+|[A-Z][A-Z\s,àèéìòù]{3,60})(?=\n)/g;
+  let m; while ((m = pat.exec(t)) !== null) matches.push({ index: m.index, title: m[1].trim() });
+  if (!matches.length) { secs.push({ titolo: "Descrizione", contenuto: fixText(t) }); }
+  else { for (let i = 0; i < matches.length; i++) { const start = matches[i].index + matches[i].title.length, end = i + 1 < matches.length ? matches[i + 1].index : t.length, contenuto = t.slice(start, end).trim(), titolo = matches[i].title.replace(/^Macrogruppo\s*\d+\s*[–—-]+\s*/i, "").trim(); if (contenuto) secs.push({ titolo, contenuto: fixText(contenuto) }); } }
+  return secs.length ? secs : [{ titolo: "Descrizione", contenuto: fixText(t) }];
+}
+
+function MD({ text, accentColor: accent = "#a78bfa" }) {
+  if (!text) return null;
+  const lines = text.split("\n"), els = [];
+  let i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^### /.test(l)) { els.push(<h4 key={i} style={{ margin: "20px 0 8px", fontSize: 12, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "1.5px", borderBottom: `1px solid ${accent}33`, paddingBottom: 5 }}>{l.slice(4)}</h4>); i++; }
+    else if (/^## /.test(l)) { els.push(<h3 key={i} style={{ margin: "22px 0 8px", fontSize: 15, fontWeight: 700, color: accent }}>{l.slice(3)}</h3>); i++; }
+    else if (/^# /.test(l)) { els.push(<h2 key={i} style={{ margin: "0 0 16px", fontSize: 20, fontWeight: 800, color: "#e2d9f3" }}>{l.slice(2)}</h2>); i++; }
+    else if (/^---+$/.test(l.trim())) { els.push(<hr key={i} style={{ border: "none", borderTop: `1px solid ${accent}33`, margin: "16px 0" }} />); i++; }
+    else if (/^[-*•] /.test(l)) { const items = []; while (i < lines.length && /^[-*•] /.test(lines[i])) { items.push(lines[i].replace(/^[-*•] /, "")); i++; } els.push(<ul key={i} style={{ margin: "8px 0", paddingLeft: 20 }}>{items.map((it, j) => <li key={j} style={{ fontSize: 13, color: "#c8bfe8", lineHeight: 1.75, marginBottom: 3 }} dangerouslySetInnerHTML={{ __html: inlineFmt(it) }} />)}</ul>); }
+    else if (/^\d+\. /.test(l)) { const items = []; while (i < lines.length && /^\d+\. /.test(lines[i])) { items.push(lines[i].replace(/^\d+\. /, "")); i++; } els.push(<ol key={i} style={{ margin: "8px 0", paddingLeft: 20 }}>{items.map((it, j) => <li key={j} style={{ fontSize: 13, color: "#c8bfe8", lineHeight: 1.75, marginBottom: 3 }} dangerouslySetInnerHTML={{ __html: inlineFmt(it) }} />)}</ol>); }
+    else if (l.trim() === "") { els.push(<div key={i} style={{ height: 8 }} />); i++; }
+    else { let block = ""; while (i < lines.length && lines[i].trim() !== "" && !/^[#\-*•]/.test(lines[i]) && !/^\d+\. /.test(lines[i]) && !/^---+$/.test(lines[i].trim())) { block += (block ? " " : "") + lines[i]; i++; } els.push(<p key={i} style={{ margin: "0 0 12px", fontSize: 13.5, color: "#c8bfe8", lineHeight: 1.85 }} dangerouslySetInnerHTML={{ __html: inlineFmt(block) }} />); }
+  }
+  return <div>{els}</div>;
+}
+
+function parseAnnoMAW(raw) {
+  if (!raw) return null;
+  const s = raw.trim();
+  const bmaw = s.match(/^([\d.,]+)\s*BMAW$/i);
+  if (bmaw) return -parseFloat(bmaw[1].replace(/\./g, "").replace(",", "."));
+  const maw = s.match(/^(?:anno\s+)?([\d.,]+)\s*(?:MAW)?$/i);
+  if (maw) return parseFloat(maw[1].replace(/\./g, "").replace(",", "."));
+  return null;
+}
+function parseTimeline(text) {
+  if (!text) return { epoche: [] };
+  const lines = text.split("\n");
+  let curEpoca = null, curEvento = null;
+  const epoche = [];
+  const pushEvento = () => { if (curEvento && curEpoca) curEpoca.eventi.push(curEvento); curEvento = null; };
+  const pushEpoca = () => { pushEvento(); if (curEpoca) epoche.push(curEpoca); curEpoca = null; };
+  for (const raw of lines) {
+    const l = raw.trim();
+    const epocaM = l.match(/^===(.+)===$/);
+    if (epocaM) {
+      pushEpoca();
+      const titolo = epocaM[1].replace(/^[⬛🟥🟦🟩🟨🟪🔶🔷◼◻▪▫]\s*/u, "").trim();
+      const rangeM = titolo.match(/([\d.,]+)\s*(?:–|—|-)\s*([\d.,]+)\s*(BMAW|MAW)/i);
+      let annoInizio = null, annoFine = null;
+      if (rangeM) { const era = rangeM[3].toUpperCase(), a = parseFloat(rangeM[1].replace(/\./g, "")), b = parseFloat(rangeM[2].replace(/\./g, "")); annoInizio = era === "BMAW" ? -Math.max(a, b) : Math.min(a, b); annoFine = era === "BMAW" ? -Math.min(a, b) : Math.max(a, b); }
+      curEpoca = { titolo, annoInizio, annoFine, eventi: [] };
+      continue;
+    }
+    const evM = l.match(/^###(.+)###$/);
+    if (evM) {
+      pushEvento();
+      const inner = evM[1].trim(), sepM = inner.match(/^(.+?)\s*[·•]\s*(.+)$/);
+      let annoRaw = "", titolo = inner;
+      if (sepM) { annoRaw = sepM[1].trim(); titolo = sepM[2].trim(); }
+      if (!curEpoca) curEpoca = { titolo: "Eventi", annoInizio: null, annoFine: null, eventi: [] };
+      curEvento = { titolo, annoRaw, anno: parseAnnoMAW(annoRaw), razza: "", descrizione: "" };
+      continue;
+    }
+    if (curEvento) {
+      const razzaM = l.match(/^\*\*(.+?)\*\*\s*(?:—|-|–)?\s*(.*)/);
+      if (razzaM && !curEvento.razza) { curEvento.razza = razzaM[1]; if (razzaM[2]) curEvento.descrizione += razzaM[2] + " "; }
+      else if (l) curEvento.descrizione += l + " ";
+    }
+  }
+  pushEpoca();
+  return { epoche };
+}
+
+const ERA_COLORS = ["#c8a84b","#3aaa6a","#00c8b0","#cc3333","#d4922a","#00b4d8","#88aaff","#d4af37","#a78bfa","#f472b6"];
+
+function TimelineView({ entries }) {
+  const [selEvent, setSelEvent] = useState(null), [selEpoca, setSelEpoca] = useState(null);
+  const scrollRef = useRef(null), [dragging, setDragging] = useState(false), [startX, setStartX] = useState(0), [scrollLeft, setScrollLeft] = useState(0);
+  const epoche = entries.flatMap(e => parseTimeline(e.publicContent).epoche);
+  if (!epoche.length) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#4a4a6a" }}><span style={{ fontSize: 48 }}>📜</span><p style={{ fontSize: 14 }}>Nessuna timeline. Importa un file con il formato eventi.</p></div>;
+  const onMD = e => { setDragging(true); setStartX(e.pageX - scrollRef.current.offsetLeft); setScrollLeft(scrollRef.current.scrollLeft); };
+  const onMM = e => { if (!dragging) return; e.preventDefault(); scrollRef.current.scrollLeft = scrollLeft - (e.pageX - scrollRef.current.offsetLeft - startX); };
+  const onMU = () => setDragging(false);
+  if (selEvent) {
+    const meta = getRazzaMeta(selEvent.razza), C = meta ? meta.colore : "#a78bfa";
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "12px 28px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.03)" }}>
+          <button onClick={() => setSelEvent(null)} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>📜 Timeline</button>
+          <span style={{ color: "#3a3a5a" }}>›</span><span style={{ fontSize: 13, fontWeight: 700, color: C }}>{selEvent.annoRaw}</span>
+          <span style={{ color: "#3a3a5a" }}>›</span><span style={{ fontSize: 13, color: "#e2d9f3" }}>{selEvent.titolo}</span>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "36px 48px" }}>
+          <div style={{ maxWidth: 720 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24, paddingBottom: 20, borderBottom: `1px solid ${C}22` }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: `${C}15`, border: `1px solid ${C}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: C }}>⚡</div>
+              <div><div style={{ fontSize: 11, color: C, letterSpacing: 2, textTransform: "uppercase", marginBottom: 3 }}>{selEvent.annoRaw} · {selEvent.razza || "Evento"}</div><h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#e2d9f3" }}>{selEvent.titolo}</h1></div>
+            </div>
+            <MD text={selEvent.descrizione.trim()} accentColor={C} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ padding: "8px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "#4a4a6a", display: "flex", gap: 20, flexShrink: 0 }}>
+        <span>⬅ trascina per scorrere</span><span>· Anno 0 = Primo portale MAW ·</span><span>{epoche.reduce((a, e) => a + e.eventi.length, 0)} eventi totali</span>
+      </div>
+      <div ref={scrollRef} onMouseDown={onMD} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={onMU} style={{ flex: 1, overflowX: "auto", overflowY: "hidden", cursor: dragging ? "grabbing" : "grab", userSelect: "none", padding: "0 40px" }}>
+        <div style={{ display: "flex", alignItems: "stretch", height: "100%", minWidth: "max-content", paddingTop: 20 }}>
+          {epoche.map((epoca, ei) => {
+            const C = ERA_COLORS[ei % ERA_COLORS.length], isOpen = selEpoca === ei;
+            return (
+              <div key={ei} style={{ display: "flex", flexDirection: "column", marginRight: 2, minWidth: isOpen ? "auto" : 48, transition: "min-width 0.3s" }}>
+                <div onClick={() => setSelEpoca(isOpen ? null : ei)} style={{ padding: "10px 14px", background: `${C}18`, border: `1px solid ${C}33`, borderRadius: "10px 10px 0 0", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: C, flexShrink: 0 }} />
+                  {isOpen && <span style={{ fontSize: 11, fontWeight: 700, color: C, whiteSpace: "nowrap", letterSpacing: 1 }}>{epoca.titolo}</span>}
+                  {isOpen && <span style={{ fontSize: 10, color: `${C}99`, whiteSpace: "nowrap" }}>{epoca.eventi.length} ev.</span>}
+                </div>
+                <div style={{ flex: 1, borderLeft: `2px solid ${C}44`, background: `${C}05`, overflowY: isOpen ? "auto" : "hidden", minWidth: isOpen ? 280 : 46, padding: isOpen ? "12px 0" : 0 }}>
+                  {isOpen && epoca.eventi.map((ev, evi) => {
+                    const meta = getRazzaMeta(ev.razza), EC = meta ? meta.colore : C;
+                    return <div key={evi} onClick={e => { e.stopPropagation(); setSelEvent(ev); }} style={{ margin: "6px 12px", padding: "10px 14px", borderRadius: 10, border: `1px solid ${EC}33`, background: `${EC}0a`, cursor: "pointer", transition: "all 0.15s" }} onMouseEnter={el => { el.currentTarget.style.background = `${EC}18`; el.currentTarget.style.borderColor = `${EC}66`; }} onMouseLeave={el => { el.currentTarget.style.background = `${EC}0a`; el.currentTarget.style.borderColor = `${EC}33`; }}>
+                      <div style={{ fontSize: 10, color: EC, fontWeight: 700, marginBottom: 3 }}>{ev.annoRaw}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#e2d9f3", marginBottom: 4, lineHeight: 1.3 }}>{ev.titolo}</div>
+                      {ev.razza && <div style={{ fontSize: 10, color: `${EC}99` }}>{ev.razza}</div>}
+                    </div>;
+                  })}
+                  {!isOpen && <div style={{ writingMode: "vertical-rl", padding: "16px 8px", fontSize: 10, color: `${C}66`, whiteSpace: "nowrap", letterSpacing: 2 }}>{epoca.titolo.slice(0, 30)}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ padding: "10px 24px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: 8, flexWrap: "wrap", flexShrink: 0 }}>
+        {epoche.map((epoca, ei) => { const C = ERA_COLORS[ei % ERA_COLORS.length]; return <button key={ei} onClick={() => setSelEpoca(selEpoca === ei ? null : ei)} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${C}${selEpoca === ei ? "99" : "33"}`, background: selEpoca === ei ? `${C}20` : "transparent", color: selEpoca === ei ? C : "#6d5fa0", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{epoca.titolo.replace(/\s*—.*/, "")}</button>; })}
+      </div>
+    </div>
+  );
+}
+
+function CampagnaView({ entries, isMaster, onEdit, onDelete }) {
+  const [selArco, setSelArco] = useState(null), [selCap, setSelCap] = useState(null);
+  const [selectMode, setSelectMode] = useState(false), [selected, setSelected] = useState(new Set()), [confirmDel, setConfirmDel] = useState(false);
+  function toggleSelect(id) { setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  function exitSelect() { setSelectMode(false); setSelected(new Set()); setConfirmDel(false); }
+  function deleteSelected() { selected.forEach(id => onDelete(id)); exitSelect(); }
+  if (!entries.length) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#4a4a6a" }}><span style={{ fontSize: 48 }}>🌌</span><p style={{ fontSize: 14 }}>{isMaster ? "Nessun arco. Clicca + Aggiungi." : "Nessun contenuto disponibile."}</p></div>;
+  if (selArco && selCap) {
+    const arco = entries.find(e => e.id === selArco) || entries[0];
+    const sec = parseSections(arco.publicContent).find(s => s.titolo === selCap);
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "12px 28px", borderBottom: "1px solid rgba(147,51,234,0.2)", display: "flex", alignItems: "center", gap: 10, background: "rgba(147,51,234,0.05)" }}>
+          <button onClick={() => { setSelArco(null); setSelCap(null); }} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>🌌 Campagna</button>
+          <span style={{ color: "#3a3a5a" }}>›</span>
+          <button onClick={() => setSelCap(null)} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>{arco.title}</button>
+          <span style={{ color: "#3a3a5a" }}>›</span><span style={{ fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>{selCap}</span>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "36px 48px" }}><div style={{ maxWidth: 760 }}><h1 style={{ margin: "0 0 24px", fontSize: 22, fontWeight: 900, color: "#e2d9f3", borderBottom: "1px solid rgba(167,139,250,0.2)", paddingBottom: 16 }}>{selCap}</h1><MD text={sec?.contenuto || ""} accentColor="#a78bfa" /></div></div>
+      </div>
+    );
+  }
+  if (selArco) {
+    const arco = entries.find(e => e.id === selArco) || entries[0];
+    const secs = parseSections(arco.publicContent);
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "12px 28px", borderBottom: "1px solid rgba(147,51,234,0.2)", display: "flex", alignItems: "center", gap: 10, background: "rgba(147,51,234,0.05)" }}>
+          <button onClick={() => setSelArco(null)} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>🌌 Campagna</button>
+          <span style={{ color: "#3a3a5a" }}>›</span><span style={{ fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>{arco.title}</span>
+          {isMaster && <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button onClick={() => onEdit(arco)} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(167,139,250,0.3)", background: "transparent", color: "#a78bfa", cursor: "pointer", fontSize: 12 }}>✏️</button>
+            <button onClick={() => { onDelete(arco.id); setSelArco(null); }} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>🗑</button>
+          </div>}
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "28px 36px" }}>
+          <div style={{ marginBottom: 24, padding: "16px 20px", borderRadius: 12, background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.15)" }}>
+            <h1 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 900, color: "#e2d9f3" }}>{arco.title}</h1>
+            {arco.privateContent && isMaster && <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, background: "rgba(124,58,237,0.12)", fontSize: 12, color: "#a78bfa" }}>🔐 {arco.privateContent}</div>}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 12 }}>
+            {secs.map((sec, i) => <button key={i} onClick={() => setSelCap(sec.titolo)} style={{ textAlign: "left", padding: "16px 18px", borderRadius: 12, border: "1px solid rgba(167,139,250,0.2)", background: "rgba(167,139,250,0.04)", cursor: "pointer", color: "#e2d9f3", transition: "all 0.15s" }} onMouseEnter={el => { el.currentTarget.style.background = "rgba(167,139,250,0.1)"; }} onMouseLeave={el => { el.currentTarget.style.background = "rgba(167,139,250,0.04)"; }}>
+              <div style={{ fontSize: 20, marginBottom: 8 }}>📖</div>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{sec.titolo}</div>
+              <div style={{ fontSize: 11, color: "#6d5fa0", lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{stripMD(sec.contenuto).slice(0, 80)}</div>
+            </button>)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "32px 36px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap", gap: 10 }}>
+        <p style={{ margin: 0, fontSize: 11, color: "#4a4a6a", textTransform: "uppercase", letterSpacing: "2px" }}>{selectMode ? `${selected.size} selezionat${selected.size === 1 ? "o" : "i"}` : "Archi narrativi"}</p>
+        {isMaster && !selectMode && <button onClick={() => setSelectMode(true)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>🗑 Elimina voci</button>}
+        {isMaster && selectMode && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => setSelected(new Set(entries.map(e => e.id)))} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Tutti</button>
+          <button onClick={() => setSelected(new Set())} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Nessuno</button>
+          {confirmDel ? <><span style={{ fontSize: 12, color: "#ef4444" }}>Eliminare {selected.size}?</span><button onClick={deleteSelected} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button><button onClick={() => setConfirmDel(false)} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>No</button></> : <button onClick={() => selected.size > 0 && setConfirmDel(true)} disabled={selected.size === 0} style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: selected.size > 0 ? "#ef4444" : "#3a2a2a", color: selected.size > 0 ? "#fff" : "#5a3a3a", fontWeight: 700, cursor: selected.size > 0 ? "pointer" : "default", fontSize: 12 }}>🗑 Elimina</button>}
+          <button onClick={exitSelect} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Annulla</button>
+        </div>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 18 }}>
+        {entries.map((e, idx) => {
+          const isSel = selected.has(e.id);
+          return <button key={e.id} onClick={() => selectMode ? toggleSelect(e.id) : setSelArco(e.id)} style={{ textAlign: "left", padding: 0, borderRadius: 14, border: isSel ? "2px solid #ef4444" : "1px solid rgba(167,139,250,0.2)", background: isSel ? "rgba(239,68,68,0.06)" : "#0f0f1a", cursor: "pointer", color: "#e2d9f3", overflow: "hidden", position: "relative", transition: "all 0.2s" }} onMouseEnter={el => { if (!isSel) { el.currentTarget.style.borderColor = "rgba(167,139,250,0.5)"; el.currentTarget.style.transform = "translateY(-3px)"; } }} onMouseLeave={el => { if (!isSel) { el.currentTarget.style.borderColor = "rgba(167,139,250,0.2)"; el.currentTarget.style.transform = "translateY(0)"; } }}>
+            {selectMode && <div style={{ position: "absolute", top: 10, right: 10, width: 20, height: 20, borderRadius: 6, border: isSel ? "none" : "2px solid #4a4a6a", background: isSel ? "#ef4444" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", zIndex: 2 }}>{isSel ? "✓" : ""}</div>}
+            <div style={{ height: 5, background: "linear-gradient(90deg,#7c3aed,#a855f7,#7c3aed55)" }} />
+            <div style={{ padding: "18px 20px 20px" }}>
+              <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>Arco {idx + 1}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#e2d9f3", marginBottom: 10 }}>{e.title || "(senza titolo)"}</div>
+              <div style={{ fontSize: 11, color: "#4a4a6a" }}>📖 {parseSections(e.publicContent).length} capitoli</div>
+            </div>
+          </button>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+const STATUS_CFG = { alleato: { label: "Alleato", color: "#22c55e", icon: "🟢" }, neutrale: { label: "Neutrale", color: "#f59e0b", icon: "🟡" }, nemico: { label: "Nemico", color: "#ef4444", icon: "🔴" }, sconosciuto: { label: "Sconosciuto", color: "#6d5fa0", icon: "⚪" } };
+
+function PngSection({ entries, isMaster, onEdit, onDelete }) {
+  const [selPng, setSelPng] = useState(null), [filterStatus, setFilterStatus] = useState("tutti");
+  const [selectMode, setSelectMode] = useState(false), [selected, setSelected] = useState(new Set()), [confirmDel, setConfirmDel] = useState(false);
+  function toggleSelect(id) { setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  function exitSelect() { setSelectMode(false); setSelected(new Set()); setConfirmDel(false); }
+  function deleteSelected() { selected.forEach(id => onDelete(id)); exitSelect(); }
+  const filtered = filterStatus === "tutti" ? entries : entries.filter(e => e.status === filterStatus);
+  if (!entries.length) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#4a4a6a" }}><span style={{ fontSize: 48 }}>🎭</span><p style={{ fontSize: 14 }}>{isMaster ? "Nessun PNG. Clicca + Aggiungi." : "Nessun contenuto disponibile."}</p></div>;
+  if (selPng) {
+    const e = entries.find(x => x.id === selPng.id) || selPng;
+    const status = STATUS_CFG[e.status] || STATUS_CFG.sconosciuto;
+    const meta = getRazzaMeta(e.fazione), C = meta ? meta.colore : "#a78bfa";
+    const secs = parseSections(e.publicContent);
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "12px 28px", borderBottom: `1px solid ${C}22`, display: "flex", alignItems: "center", gap: 10, background: `${C}08` }}>
+          <button onClick={() => setSelPng(null)} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>🎭 PNG</button>
+          <span style={{ color: "#3a3a5a" }}>›</span><span style={{ fontSize: 13, fontWeight: 700, color: C }}>{e.title}</span>
+          {isMaster && <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button onClick={() => onEdit(e)} style={{ padding: "4px 12px", borderRadius: 8, border: `1px solid ${C}44`, background: "transparent", color: C, cursor: "pointer", fontSize: 12 }}>✏️</button>
+            <button onClick={() => { onDelete(e.id); setSelPng(null); }} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>🗑</button>
+          </div>}
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "28px 36px" }}>
+          <div style={{ maxWidth: 760 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 20, marginBottom: 24, padding: "20px 24px", borderRadius: 14, background: `${C}08`, border: `1px solid ${C}22` }}>
+              <div style={{ width: 64, height: 64, borderRadius: 14, background: `${C}15`, border: `1px solid ${C}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, flexShrink: 0 }}>{e.icona || "🎭"}</div>
+              <div style={{ flex: 1 }}>
+                <h1 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 900, color: "#e2d9f3" }}>{e.title}</h1>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <span style={{ padding: "3px 10px", borderRadius: 20, background: `${status.color}20`, border: `1px solid ${status.color}44`, fontSize: 11, color: status.color, fontWeight: 700 }}>{status.icon} {status.label}</span>
+                  {e.fazione && <span style={{ padding: "3px 10px", borderRadius: 20, background: `${C}15`, border: `1px solid ${C}33`, fontSize: 11, color: C, fontWeight: 600 }}>{e.fazione}</span>}
+                  {e.ultimaApparizione && <span style={{ padding: "3px 10px", borderRadius: 20, background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", fontSize: 11, color: "#8b7aa8" }}>📍 {e.ultimaApparizione}</span>}
+                </div>
+              </div>
+            </div>
+            {secs.map((sec, i) => <div key={i} style={{ marginBottom: 20 }}>{secs.length > 1 && <h3 style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: C, textTransform: "uppercase", letterSpacing: 1 }}>{sec.titolo}</h3>}<MD text={sec.contenuto} accentColor={C} /></div>)}
+            {isMaster && e.privateContent && <div style={{ marginTop: 24, padding: 16, borderRadius: 12, background: "rgba(124,58,237,0.1)", border: "1px solid rgba(167,139,250,0.25)" }}><div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, marginBottom: 8 }}>🔐 Note Master</div><MD text={e.privateContent} accentColor="#a78bfa" /></div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ padding: "10px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", flexShrink: 0 }}>
+        {["tutti","alleato","neutrale","nemico","sconosciuto"].map(s => { const cfg = s === "tutti" ? { label: "Tutti", color: "#a78bfa", icon: "🎭" } : STATUS_CFG[s]; return <button key={s} onClick={() => setFilterStatus(s)} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${cfg.color}${filterStatus === s ? "88" : "33"}`, background: filterStatus === s ? `${cfg.color}20` : "transparent", color: filterStatus === s ? cfg.color : "#6d5fa0", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{cfg.icon} {cfg.label}</button>; })}
+        <div style={{ marginLeft: "auto" }}>
+          {isMaster && !selectMode && <button onClick={() => setSelectMode(true)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>🗑 Elimina voci</button>}
+          {isMaster && selectMode && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => setSelected(new Set(entries.map(e => e.id)))} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 11 }}>Tutti</button>
+            <button onClick={() => setSelected(new Set())} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 11 }}>Nessuno</button>
+            {confirmDel ? <><span style={{ fontSize: 11, color: "#ef4444" }}>Eliminare {selected.size}?</span><button onClick={deleteSelected} style={{ padding: "5px 10px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 11 }}>Sì</button><button onClick={() => setConfirmDel(false)} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 11 }}>No</button></> : <button onClick={() => selected.size > 0 && setConfirmDel(true)} disabled={selected.size === 0} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: selected.size > 0 ? "#ef4444" : "#3a2a2a", color: selected.size > 0 ? "#fff" : "#5a3a3a", fontWeight: 700, cursor: selected.size > 0 ? "pointer" : "default", fontSize: 11 }}>🗑 Elimina</button>}
+            <button onClick={exitSelect} style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 11 }}>Annulla</button>
+          </div>}
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(230px,1fr))", gap: 14 }}>
+          {filtered.map(e => {
+            const status = STATUS_CFG[e.status] || STATUS_CFG.sconosciuto, meta = getRazzaMeta(e.fazione), C = meta ? meta.colore : "#a78bfa", isSel = selected.has(e.id);
+            return <button key={e.id} onClick={() => selectMode ? toggleSelect(e.id) : setSelPng(e)} style={{ textAlign: "left", padding: 0, borderRadius: 14, border: isSel ? "2px solid #ef4444" : `1px solid ${C}33`, background: isSel ? "rgba(239,68,68,0.08)" : "#0f0f1a", cursor: "pointer", color: "#e2d9f3", overflow: "hidden", position: "relative", transition: "all 0.2s" }} onMouseEnter={el => { if (!isSel) { el.currentTarget.style.borderColor = `${C}66`; el.currentTarget.style.transform = "translateY(-3px)"; } }} onMouseLeave={el => { if (!isSel) { el.currentTarget.style.borderColor = `${C}33`; el.currentTarget.style.transform = "translateY(0)"; } }}>
+              {selectMode && <div style={{ position: "absolute", top: 10, right: 10, width: 20, height: 20, borderRadius: 6, border: isSel ? "none" : "2px solid #4a4a6a", background: isSel ? "#ef4444" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", zIndex: 2 }}>{isSel ? "✓" : ""}</div>}
+              <div style={{ height: 5, background: `linear-gradient(90deg,${C},${C}55)` }} />
+              <div style={{ padding: "16px 18px 18px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 10, background: `${C}15`, border: `1px solid ${C}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>{e.icona || "🎭"}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "#e2d9f3", marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title || "(senza nome)"}</div>
+                    <div style={{ fontSize: 11, color: status.color, fontWeight: 600 }}>{status.icon} {status.label}</div>
+                  </div>
+                </div>
+                {e.fazione && <div style={{ fontSize: 11, color: C, marginBottom: 4 }}>{e.fazione}</div>}
+                {e.ultimaApparizione && <div style={{ fontSize: 11, color: "#4a4a6a" }}>📍 {e.ultimaApparizione}</div>}
+              </div>
+            </button>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PngEditor({ entry, onSave, onCancel, accent }) {
+  const [e, setE] = useState({ icona: "🎭", fazione: "", status: "sconosciuto", ultimaApparizione: "", ...entry });
+  const upd = (k, v) => setE(p => ({ ...p, [k]: v }));
+  return (
+    <div style={{ maxWidth: 700, margin: "0 auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: 16, marginBottom: 16, alignItems: "end" }}>
+        <div><label style={{ fontSize: 12, color: "#8b7aa8", display: "block", marginBottom: 6 }}>Icona</label><input value={e.icona} onChange={ev => upd("icona", ev.target.value)} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 24, textAlign: "center", boxSizing: "border-box" }} /></div>
+        <div><label style={{ fontSize: 12, color: "#8b7aa8", display: "block", marginBottom: 6 }}>Nome</label><input value={e.title} onChange={ev => upd("title", ev.target.value)} placeholder="Nome PNG..." style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 15, fontWeight: 700, boxSizing: "border-box" }} /></div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+        <div><label style={{ fontSize: 12, color: "#8b7aa8", display: "block", marginBottom: 6 }}>Status</label><select value={e.status} onChange={ev => upd("status", ev.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "#1a1a35", color: "#e2d9f3", fontSize: 13 }}>{Object.entries(STATUS_CFG).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}</select></div>
+        <div><label style={{ fontSize: 12, color: "#8b7aa8", display: "block", marginBottom: 6 }}>Fazione</label><input value={e.fazione} onChange={ev => upd("fazione", ev.target.value)} placeholder="es. Eldari" style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 13, boxSizing: "border-box" }} /></div>
+        <div><label style={{ fontSize: 12, color: "#8b7aa8", display: "block", marginBottom: 6 }}>Ultima apparizione</label><input value={e.ultimaApparizione} onChange={ev => upd("ultimaApparizione", ev.target.value)} placeholder="es. Sessione 4" style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 13, boxSizing: "border-box" }} /></div>
+      </div>
+      <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, color: "#0ea5e9", display: "block", marginBottom: 6 }}>👥 Descrizione Pubblica</label><textarea value={e.publicContent} onChange={ev => upd("publicContent", ev.target.value)} placeholder="Descrizione pubblica..." style={{ width: "100%", height: 180, padding: 14, borderRadius: 10, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.04)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} /></div>
+      <div style={{ marginBottom: 24 }}><label style={{ fontSize: 12, color: "#a855f7", display: "block", marginBottom: 6 }}>🔐 Note Segrete (solo Master)</label><textarea value={e.privateContent} onChange={ev => upd("privateContent", ev.target.value)} placeholder="Motivazioni, segreti, piani..." style={{ width: "100%", height: 150, padding: 14, borderRadius: 10, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(124,58,237,0.06)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} /></div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={() => onSave(e)} style={{ padding: "12px 28px", borderRadius: 10, border: "none", background: `linear-gradient(90deg,${accent},#a855f7)`, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>💾 Salva</button>
+        <button onClick={onCancel} style={{ padding: "12px 20px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 14 }}>Annulla</button>
+      </div>
+    </div>
+  );
+}
+
+function PgSection({ entries, isMaster, onEdit, onDelete }) {
+  const [selPg, setSelPg] = useState(null);
+  const [presentazioni, setPresentazioni] = useState({});
+  const [pending, setPending] = useState({});
+  const [writing, setWriting] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [ready, setReady] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState(new Set());
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const raw = localStorage.getItem(PG_PRES_KEY);
+        if (raw) { const p = JSON.parse(raw); setPresentazioni(p.approvate || {}); setPending(p.pending || {}); }
+      } catch {}
+      setReady(true);
+    }
+    load();
+  }, []);
+
+  function saveAll(approvate, pend) {
+    try { localStorage.setItem(PG_PRES_KEY, JSON.stringify({ approvate, pending: pend })); } catch {}
+  }
+
+  function submitPresentazione(pgId) {
+    if (!draft.trim()) return;
+    const np = { ...pending, [pgId]: { testo: draft.trim(), createdAt: new Date().toISOString() } };
+    setPending(np); saveAll(presentazioni, np); setDraft(""); setWriting(false);
+  }
+  function approva(pgId) {
+    const testo = pending[pgId]?.testo; if (!testo) return;
+    const na = { ...presentazioni, [pgId]: testo }, np = { ...pending }; delete np[pgId];
+    setPresentazioni(na); setPending(np); saveAll(na, np);
+  }
+  function rifiuta(pgId) {
+    const np = { ...pending }; delete np[pgId]; setPending(np); saveAll(presentazioni, np);
+  }
+  function toggleSelect(id) { setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  function exitSelect() { setSelectMode(false); setSelected(new Set()); setConfirmDel(false); }
+  function deleteSelected() { selected.forEach(id => onDelete(id)); exitSelect(); }
+
+  if (!ready) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#4a4a6a" }}>Caricamento...</div>;
+  if (!entries.length) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#4a4a6a" }}><span style={{ fontSize: 48 }}>⚔️</span><p style={{ fontSize: 14 }}>{isMaster ? "Nessun PG. Clicca + Aggiungi." : "Nessun personaggio disponibile."}</p></div>;
+
+  if (selPg) {
+    const pg = entries.find(e => e.id === selPg);
+    if (!pg) { setSelPg(null); return null; }
+    const pres = presentazioni[pg.id], pend = pending[pg.id], secs = parseSections(pg.publicContent);
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "12px 28px", borderBottom: "1px solid rgba(167,139,250,0.2)", display: "flex", alignItems: "center", gap: 10, background: "rgba(167,139,250,0.05)" }}>
+          <button onClick={() => { setSelPg(null); setWriting(false); setDraft(""); }} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>⚔️ PG</button>
+          <span style={{ color: "#3a3a5a" }}>›</span><span style={{ fontSize: 13, fontWeight: 700, color: "#a78bfa" }}>{pg.title}</span>
+          {isMaster && <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button onClick={() => onEdit(pg)} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(167,139,250,0.3)", background: "transparent", color: "#a78bfa", cursor: "pointer", fontSize: 12 }}>✏️</button>
+            <button onClick={() => { onDelete(pg.id); setSelPg(null); }} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>🗑</button>
+          </div>}
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "28px 36px" }}>
+          <div style={{ maxWidth: 760 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24, padding: "20px 24px", borderRadius: 14, background: "rgba(167,139,250,0.07)", border: "1px solid rgba(167,139,250,0.2)" }}>
+              <div style={{ width: 56, height: 56, borderRadius: 14, background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>⚔️</div>
+              <div><h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, color: "#e2d9f3" }}>{pg.title}</h1><div style={{ fontSize: 12, color: "#6d5fa0", marginTop: 4 }}>{secs.length} sezioni pubbliche</div></div>
+            </div>
+            {isMaster && pend && (
+              <div style={{ marginBottom: 20, padding: "14px 18px", borderRadius: 12, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
+                <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 700, marginBottom: 8 }}>⏳ PRESENTAZIONE IN ATTESA</div>
+                <p style={{ margin: "0 0 12px", fontSize: 13, color: "#c8bfe8", fontStyle: "italic", lineHeight: 1.7 }}>"{pend.testo}"</p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => approva(pg.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#22c55e", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>✓ Approva</button>
+                  <button onClick={() => rifiuta(pg.id)} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>✕ Rifiuta</button>
+                </div>
+              </div>
+            )}
+            <div style={{ marginBottom: 24, padding: "16px 20px", borderRadius: 12, background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.2)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, letterSpacing: 1 }}>✍️ PRESENTAZIONE DEL PERSONAGGIO</div>
+                {!isMaster && !writing && !pend && <button onClick={() => { setWriting(true); setDraft(pres || ""); }} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(167,139,250,0.3)", background: "transparent", color: "#a78bfa", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>{pres ? "✏️ Modifica" : "+ Aggiungi"}</button>}
+                {!isMaster && pend && <span style={{ fontSize: 11, color: "#f59e0b" }}>⏳ In attesa di approvazione</span>}
+              </div>
+              {writing && !isMaster ? (
+                <div>
+                  <textarea value={draft} onChange={e => setDraft(e.target.value)} placeholder="Scrivi come il tuo personaggio si presenta agli altri..." style={{ width: "100%", height: 140, padding: 12, borderRadius: 10, border: "1px solid rgba(167,139,250,0.3)", background: "rgba(167,139,250,0.06)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.7, resize: "vertical", boxSizing: "border-box" }} />
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <button onClick={() => submitPresentazione(pg.id)} disabled={!draft.trim()} style={{ padding: "7px 18px", borderRadius: 8, border: "none", background: draft.trim() ? "linear-gradient(90deg,#7c3aed,#a855f7)" : "#2a2a3a", color: "#fff", fontWeight: 700, cursor: draft.trim() ? "pointer" : "default", fontSize: 12 }}>📨 Invia per approvazione</button>
+                    <button onClick={() => { setWriting(false); setDraft(""); }} style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Annulla</button>
+                  </div>
+                </div>
+              ) : pres ? <p style={{ margin: 0, fontSize: 13.5, color: "#c8bfe8", fontStyle: "italic", lineHeight: 1.85 }}>"{pres}"</p>
+                : <p style={{ margin: 0, fontSize: 13, color: "#4a4a6a", fontStyle: "italic" }}>Nessuna presentazione ancora.</p>}
+            </div>
+            {secs.map((sec, i) => <div key={i} style={{ marginBottom: 20 }}>{secs.length > 1 && <h3 style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 1 }}>{sec.titolo}</h3>}<MD text={sec.contenuto} accentColor="#a78bfa" /></div>)}
+            {isMaster && pg.privateContent && <div style={{ marginTop: 24, padding: 16, borderRadius: 12, background: "rgba(124,58,237,0.1)", border: "1px solid rgba(167,139,250,0.25)" }}><div style={{ fontSize: 12, color: "#a78bfa", fontWeight: 700, marginBottom: 8 }}>🔐 Background Segreto (solo Master)</div><MD text={pg.privateContent} accentColor="#a78bfa" /></div>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const pendingCount = Object.keys(pending).length;
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {isMaster && pendingCount > 0 && <div style={{ padding: "8px 24px", background: "rgba(245,158,11,0.08)", borderBottom: "1px solid rgba(245,158,11,0.2)", fontSize: 12, color: "#f59e0b", fontWeight: 600, flexShrink: 0 }}>⏳ {pendingCount} presentazion{pendingCount === 1 ? "e" : "i"} in attesa</div>}
+      <div style={{ flex: 1, overflowY: "auto", padding: "32px 36px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap", gap: 10 }}>
+          <p style={{ margin: 0, fontSize: 11, color: "#4a4a6a", textTransform: "uppercase", letterSpacing: "2px" }}>{selectMode ? `${selected.size} selezionat${selected.size === 1 ? "o" : "i"}` : "Personaggi"}</p>
+          {isMaster && !selectMode && <button onClick={() => setSelectMode(true)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>🗑 Elimina voci</button>}
+          {isMaster && selectMode && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button onClick={() => setSelected(new Set(entries.map(e => e.id)))} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Tutti</button>
+            <button onClick={() => setSelected(new Set())} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Nessuno</button>
+            {confirmDel ? <><span style={{ fontSize: 12, color: "#ef4444" }}>Eliminare {selected.size}?</span><button onClick={deleteSelected} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button><button onClick={() => setConfirmDel(false)} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>No</button></> : <button onClick={() => selected.size > 0 && setConfirmDel(true)} disabled={selected.size === 0} style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: selected.size > 0 ? "#ef4444" : "#3a2a2a", color: selected.size > 0 ? "#fff" : "#5a3a3a", fontWeight: 700, cursor: selected.size > 0 ? "pointer" : "default", fontSize: 12 }}>🗑 Elimina</button>}
+            <button onClick={exitSelect} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Annulla</button>
+          </div>}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 18 }}>
+          {entries.map(e => {
+            const isSel = selected.has(e.id), hasPend = !!pending[e.id], hasPres = !!presentazioni[e.id];
+            return <button key={e.id} onClick={() => selectMode ? toggleSelect(e.id) : setSelPg(e.id)} style={{ textAlign: "left", padding: 0, borderRadius: 14, border: isSel ? "2px solid #ef4444" : "1px solid rgba(167,139,250,0.25)", background: isSel ? "rgba(239,68,68,0.06)" : "#0f0f1a", cursor: "pointer", color: "#e2d9f3", overflow: "hidden", position: "relative", transition: "all 0.2s" }} onMouseEnter={el => { if (!isSel) { el.currentTarget.style.borderColor = "rgba(167,139,250,0.6)"; el.currentTarget.style.transform = "translateY(-3px)"; } }} onMouseLeave={el => { if (!isSel) { el.currentTarget.style.borderColor = "rgba(167,139,250,0.25)"; el.currentTarget.style.transform = "translateY(0)"; } }}>
+              {selectMode && <div style={{ position: "absolute", top: 10, right: 10, width: 20, height: 20, borderRadius: 6, border: isSel ? "none" : "2px solid #4a4a6a", background: isSel ? "#ef4444" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", zIndex: 2 }}>{isSel ? "✓" : ""}</div>}
+              {hasPend && isMaster && <div style={{ position: "absolute", top: 10, right: selectMode ? 36 : 10, width: 10, height: 10, borderRadius: "50%", background: "#f59e0b", zIndex: 2 }} />}
+              <div style={{ height: 5, background: "linear-gradient(90deg,#7c3aed,#a855f7)" }} />
+              <div style={{ padding: "18px 20px 20px" }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.25)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, marginBottom: 12 }}>⚔️</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: "#e2d9f3", marginBottom: 8 }}>{e.title || "(senza nome)"}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {hasPres && <span style={{ fontSize: 10, color: "#22c55e", background: "rgba(34,197,94,0.1)", padding: "2px 8px", borderRadius: 10, border: "1px solid rgba(34,197,94,0.2)" }}>✍️ Presentazione</span>}
+                  {hasPend && <span style={{ fontSize: 10, color: "#f59e0b", background: "rgba(245,158,11,0.1)", padding: "2px 8px", borderRadius: 10, border: "1px solid rgba(245,158,11,0.2)" }}>⏳ In attesa</span>}
+                  {isMaster && e.privateContent && <span style={{ fontSize: 10, color: "#a78bfa", background: "rgba(167,139,250,0.1)", padding: "2px 8px", borderRadius: 10, border: "1px solid rgba(167,139,250,0.2)" }}>🔐 BG</span>}
+                </div>
+              </div>
+            </button>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiarioView({ pgList, isMaster }) {
+  const [voci, setVoci] = useState([]);
+  const [selPg, setSelPg] = useState("tutti");
+  const [writing, setWriting] = useState(false);
+  const [form, setForm] = useState({ pgId: "", testo: "", sessione: "" });
+  const [ready, setReady] = useState(false);
+  const safePgList = Array.isArray(pgList) ? pgList : [];
+
+  useEffect(() => {
+    async function load() {
+      try { const raw = localStorage.getItem(DIARIO_KEY); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p)) setVoci(p); } } catch {}
+      setReady(true);
+    }
+    load();
+  }, []);
+
+  function saveVoci(nv) { setVoci(nv); try { localStorage.setItem(DIARIO_KEY, JSON.stringify(nv)); } catch {} }
+  function submitVoce() {
+    if (!form.testo.trim() || !form.pgId) return;
+    saveVoci([...voci, { id: mkId(), pgId: form.pgId, testo: form.testo.trim(), sessione: form.sessione, createdAt: new Date().toISOString(), stato: "pending" }]);
+    setForm({ pgId: "", testo: "", sessione: "" }); setWriting(false);
+  }
+  function approva(id) { saveVoci(voci.map(v => v.id === id ? { ...v, stato: "approved" } : v)); }
+  function rifiuta(id) { saveVoci(voci.filter(v => v.id !== id)); }
+
+  if (!ready) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#4a4a6a" }}>Caricamento...</div>;
+  if (!safePgList.length) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#4a4a6a" }}><span style={{ fontSize: 48 }}>📓</span><p style={{ fontSize: 14 }}>{isMaster ? "Crea prima i PG nella sezione PG." : "Nessun personaggio disponibile."}</p></div>;
+
+  const pendingVoci = voci.filter(v => v.stato === "pending");
+  const approved = voci.filter(v => v.stato === "approved" && (selPg === "tutti" || v.pgId === selPg));
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {isMaster && pendingVoci.length > 0 && (
+        <div style={{ padding: "10px 20px", borderBottom: "1px solid rgba(245,158,11,0.2)", background: "rgba(245,158,11,0.05)", flexShrink: 0 }}>
+          <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 700, marginBottom: 8, letterSpacing: 1 }}>⏳ IN ATTESA ({pendingVoci.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {pendingVoci.map(v => {
+              const pg = safePgList.find(p => p.id === v.pgId);
+              return <div key={v.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderRadius: 10, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 700, marginBottom: 3 }}>{pg?.title || "?"} {v.sessione ? `· ${v.sessione}` : ""}</div>
+                  <div style={{ fontSize: 12, color: "#c8bfe8", lineHeight: 1.5 }}>{v.testo}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => approva(v.id)} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: "#22c55e", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 11 }}>✓</button>
+                  <button onClick={() => rifiuta(v.id)} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 11 }}>✕</button>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>
+      )}
+      <div style={{ padding: "10px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", flexShrink: 0 }}>
+        <button onClick={() => setSelPg("tutti")} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${selPg === "tutti" ? "#a78bfa88" : "#a78bfa33"}`, background: selPg === "tutti" ? "rgba(167,139,250,0.15)" : "transparent", color: selPg === "tutti" ? "#a78bfa" : "#6d5fa0", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>📓 Tutti</button>
+        {safePgList.map(pg => <button key={pg.id} onClick={() => setSelPg(pg.id)} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${selPg === pg.id ? "#a78bfa88" : "#a78bfa33"}`, background: selPg === pg.id ? "rgba(167,139,250,0.15)" : "transparent", color: selPg === pg.id ? "#a78bfa" : "#6d5fa0", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>⚔️ {pg.title}</button>)}
+        {!isMaster && !writing && <button onClick={() => setWriting(true)} style={{ marginLeft: "auto", padding: "6px 14px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>✍️ Scrivi</button>}
+      </div>
+      {!isMaster && writing && (
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(167,139,250,0.2)", background: "rgba(167,139,250,0.05)", flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+            <select value={form.pgId} onChange={e => setForm(f => ({ ...f, pgId: e.target.value }))} style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "#1a1a35", color: form.pgId ? "#e2d9f3" : "#6d5fa0", fontSize: 13 }}>
+              <option value="">Scegli il tuo PG...</option>
+              {safePgList.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+            </select>
+            <input value={form.sessione} onChange={e => setForm(f => ({ ...f, sessione: e.target.value }))} placeholder="Sessione (opz.)" style={{ width: 140, padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#e2d9f3", fontSize: 13 }} />
+          </div>
+          <textarea value={form.testo} onChange={e => setForm(f => ({ ...f, testo: e.target.value }))} placeholder="Scrivi in prima persona..." style={{ width: "100%", height: 120, padding: 12, borderRadius: 10, border: "1px solid rgba(167,139,250,0.3)", background: "rgba(167,139,250,0.05)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button onClick={submitVoce} disabled={!form.testo.trim() || !form.pgId} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: form.testo.trim() && form.pgId ? "linear-gradient(90deg,#7c3aed,#a855f7)" : "#2a2a3a", color: "#fff", fontWeight: 700, cursor: form.testo.trim() && form.pgId ? "pointer" : "default", fontSize: 13 }}>📨 Invia</button>
+            <button onClick={() => setWriting(false)} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 13 }}>Annulla</button>
+          </div>
+        </div>
+      )}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+        {approved.length === 0 && <div style={{ textAlign: "center", color: "#4a4a6a", paddingTop: 60, fontSize: 14 }}>Nessuna voce ancora approvata.</div>}
+        <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+          {approved.map(v => {
+            const pg = safePgList.find(p => p.id === v.pgId), d = new Date(v.createdAt);
+            return <div key={v.id} style={{ padding: "18px 22px", borderRadius: 12, background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.15)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚔️</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa" }}>{pg?.title || "?"}</div>
+                  <div style={{ fontSize: 10, color: "#4a4a6a" }}>{v.sessione && `${v.sessione} · `}{d.toLocaleDateString("it-IT")}</div>
+                </div>
+                {isMaster && <button onClick={() => rifiuta(v.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: 0 }}>🗑</button>}
+              </div>
+              <p style={{ margin: 0, fontSize: 13.5, color: "#c8bfe8", lineHeight: 1.85, fontStyle: "italic" }}>"{v.testo}"</p>
+            </div>;
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RaceGrid({ entries, isMaster, onOpen, onDelete }) {
+  const [selectMode, setSelectMode] = useState(false), [selected, setSelected] = useState(new Set()), [confirmDel, setConfirmDel] = useState(false);
+  function toggleSelect(id) { setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
+  function exitSelectMode() { setSelectMode(false); setSelected(new Set()); setConfirmDel(false); }
+  function deleteSelected() { selected.forEach(id => onDelete(id)); exitSelectMode(); }
+  return (
+    <div style={{ flex: 1, overflowY: "auto", padding: "32px 36px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap", gap: 10 }}>
+        <p style={{ margin: 0, fontSize: 11, color: "#4a4a6a", textTransform: "uppercase", letterSpacing: "2px" }}>{selectMode ? `${selected.size} selezionat${selected.size === 1 ? "a" : "e"}` : "Seleziona una razza"}</p>
+        {isMaster && !selectMode && <button onClick={() => setSelectMode(true)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>🗑 Elimina voci</button>}
+        {isMaster && selectMode && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => setSelected(new Set(entries.map(e => e.id)))} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Tutte</button>
+          <button onClick={() => setSelected(new Set())} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Nessuna</button>
+          {confirmDel ? <><span style={{ fontSize: 12, color: "#ef4444" }}>Eliminare {selected.size}?</span><button onClick={deleteSelected} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button><button onClick={() => setConfirmDel(false)} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>No</button></> : <button onClick={() => selected.size > 0 && setConfirmDel(true)} disabled={selected.size === 0} style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: selected.size > 0 ? "#ef4444" : "#3a2a2a", color: selected.size > 0 ? "#fff" : "#5a3a3a", fontWeight: 700, cursor: selected.size > 0 ? "pointer" : "default", fontSize: 12 }}>🗑 Elimina</button>}
+          <button onClick={exitSelectMode} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>Annulla</button>
+        </div>}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 18 }}>
+        {entries.map(e => {
+          const meta = getRazzaMeta(e.title), C = meta ? meta.colore : "#7c3aed", BG = meta ? meta.bg : "rgba(124,58,237,0.07)", isSel = selected.has(e.id);
+          return <button key={e.id} onClick={() => selectMode ? toggleSelect(e.id) : onOpen(e)} style={{ textAlign: "left", padding: 0, borderRadius: 14, border: isSel ? "2px solid #ef4444" : `1px solid ${C}33`, background: isSel ? "rgba(239,68,68,0.08)" : "#0f0f1a", cursor: "pointer", color: "#e2d9f3", transition: "all 0.25s", overflow: "hidden", position: "relative" }} onMouseEnter={el => { if (!isSel) { el.currentTarget.style.border = `1px solid ${C}88`; el.currentTarget.style.transform = "translateY(-3px)"; } }} onMouseLeave={el => { if (!isSel) { el.currentTarget.style.border = `1px solid ${C}33`; el.currentTarget.style.transform = "translateY(0)"; } }}>
+            {selectMode && <div style={{ position: "absolute", top: 10, right: 10, width: 20, height: 20, borderRadius: 6, border: isSel ? "none" : "2px solid #4a4a6a", background: isSel ? "#ef4444" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", zIndex: 2 }}>{isSel ? "✓" : ""}</div>}
+            <div style={{ height: 6, background: `linear-gradient(90deg,${C},${C}55)` }} />
+            <div style={{ padding: "20px 22px 22px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <div style={{ width: 42, height: 42, borderRadius: 10, background: BG, border: `1px solid ${C}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: C, flexShrink: 0 }}>{meta ? meta.icona : "🧬"}</div>
+                <div><div style={{ fontSize: 11, color: C, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>{meta ? meta.short : e.title}</div><div style={{ fontSize: 13, color: "#e2d9f3", fontWeight: 600, lineHeight: 1.3 }}>{meta ? meta.nome : e.title}</div></div>
+              </div>
+              {meta && <p style={{ margin: "0 0 10px", fontSize: 11, color: "#6d5fa0", fontStyle: "italic", lineHeight: 1.5 }}>{meta.motto}</p>}
+              <div style={{ fontSize: 11, color: "#4a4a6a" }}>{parseSections(e.publicContent).length} sezioni</div>
+            </div>
+          </button>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RaceSection({ entries, isMaster, onEdit, onDelete }) {
+  const [selRace, setSelRace] = useState(null), [selSec, setSelSec] = useState(null);
+  useEffect(() => { if (selRace && !entries.find(e => e.id === selRace.id)) { setSelRace(null); setSelSec(null); } }, [entries]);
+  if (!selRace) {
+    if (!entries.length) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#4a4a6a" }}><span style={{ fontSize: 48 }}>🧬</span><p style={{ fontSize: 14 }}>{isMaster ? "Nessuna razza. Clicca + Aggiungi." : "Nessun contenuto disponibile."}</p></div>;
+    return <RaceGrid entries={entries} isMaster={isMaster} onOpen={e => { setSelRace(e); setSelSec(null); }} onDelete={onDelete} />;
+  }
+  const entry = entries.find(e => e.id === selRace.id) || selRace, meta = getRazzaMeta(entry.title);
+  const C = meta ? meta.colore : "#7c3aed", BG = meta ? meta.bg : "rgba(124,58,237,0.07)", GLOW = meta ? meta.glow : "rgba(124,58,237,0.18)", icona = meta ? meta.icona : "🧬";
+  const pubS = parseSections(entry.publicContent), privS = isMaster ? parseSections(entry.privateContent) : [];
+  const allS = [...pubS.map(s => ({ ...s, secret: false })), ...privS.map(s => ({ ...s, secret: true }))];
+  if (!selSec) return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ padding: "12px 28px", borderBottom: `1px solid ${C}22`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: BG }}>
+        <button onClick={() => setSelRace(null)} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>🧬 Razze</button>
+        <span style={{ color: "#3a3a5a" }}>›</span><span style={{ fontSize: 13, fontWeight: 700, color: C }}>{meta ? meta.short : entry.title}</span>
+        {isMaster && <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button onClick={() => onEdit(entry)} style={{ padding: "4px 12px", borderRadius: 8, border: `1px solid ${C}44`, background: "transparent", color: C, cursor: "pointer", fontSize: 12 }}>✏️</button>
+          <button onClick={() => { onDelete(entry.id); setSelRace(null); }} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>🗑</button>
+        </div>}
+      </div>
+      <div style={{ padding: "28px 36px 24px", background: `linear-gradient(135deg,${BG},rgba(15,15,26,0.95))`, borderBottom: `1px solid ${C}22`, position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg,${C},${C}55,transparent)` }} />
+        <div style={{ position: "absolute", top: -40, right: -20, fontSize: 120, opacity: 0.05, color: C, lineHeight: 1 }}>{icona}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 12, background: BG, border: `1px solid ${C}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, color: C, boxShadow: `0 0 20px ${GLOW}` }}>{icona}</div>
+          <div><div style={{ fontSize: 10, color: C, letterSpacing: 3, textTransform: "uppercase", marginBottom: 4 }}>{meta ? meta.short : "Razza"}</div><h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, color: "#e2d9f3" }}>{meta ? meta.nome : entry.title}</h1></div>
+        </div>
+        {meta && <p style={{ margin: "0 0 10px", fontSize: 13, color: `${C}cc`, fontStyle: "italic", paddingLeft: 12, borderLeft: `2px solid ${C}55` }}>{meta.motto}</p>}
+        <div style={{ fontSize: 12, color: "#4a4a6a" }}>{allS.length} sezioni{isMaster && privS.length > 0 ? ` · ${privS.length} riservate al Master` : ""}</div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 36px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 14 }}>
+          {allS.map((sec, i) => <button key={i} onClick={() => setSelSec(sec)} style={{ textAlign: "left", padding: "18px 20px", borderRadius: 12, border: sec.secret ? `1px solid ${C}55` : `1px solid ${C}22`, background: sec.secret ? `${C}10` : "rgba(255,255,255,0.03)", cursor: "pointer", color: "#e2d9f3", transition: "all 0.2s" }} onMouseEnter={el => { el.currentTarget.style.background = `${C}15`; el.currentTarget.style.transform = "translateY(-2px)"; }} onMouseLeave={el => { el.currentTarget.style.background = sec.secret ? `${C}10` : "rgba(255,255,255,0.03)"; el.currentTarget.style.transform = "translateY(0)"; }}>
+            <div style={{ fontSize: 18, marginBottom: 8 }}>{sec.secret ? "🔐" : icona}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: sec.secret ? C : "#e2d9f3", marginBottom: 6 }}>{sec.titolo}</div>
+            <div style={{ fontSize: 11, color: "#4a4a6a", lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{stripMD(sec.contenuto).slice(0, 90)}</div>
+          </button>)}
+        </div>
+      </div>
+    </div>
+  );
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ padding: "12px 28px", borderBottom: `1px solid ${C}22`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: BG }}>
+        <button onClick={() => setSelRace(null)} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>🧬 Razze</button>
+        <span style={{ color: "#3a3a5a" }}>›</span>
+        <button onClick={() => setSelSec(null)} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13, padding: 0 }}>{meta ? meta.short : entry.title}</button>
+        <span style={{ color: "#3a3a5a" }}>›</span><span style={{ fontSize: 13, fontWeight: 700, color: selSec.secret ? C : "#e2d9f3" }}>{selSec.titolo}</span>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "36px 48px" }}>
+        <div style={{ maxWidth: 760 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 28, paddingBottom: 20, borderBottom: `1px solid ${C}22` }}>
+            <div style={{ width: 44, height: 44, borderRadius: 10, background: BG, border: `1px solid ${C}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, color: C, boxShadow: `0 0 12px ${GLOW}` }}>{selSec.secret ? "🔐" : icona}</div>
+            <div><div style={{ fontSize: 10, color: C, letterSpacing: 2, textTransform: "uppercase", marginBottom: 3 }}>{meta ? meta.short : entry.title} · {selSec.secret ? "Segreto Master" : "Lore"}</div><h1 style={{ margin: 0, fontSize: 24, fontWeight: 900, color: selSec.secret ? C : "#e2d9f3" }}>{selSec.titolo}</h1></div>
+          </div>
+          <MD text={selSec.contenuto} accentColor={C} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GenericSection({ entries, isMaster, accent, onEdit, onDelete, onClear }) {
+  const [confirmClear, setConfirmClear] = useState(false);
+  if (!entries.length) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12, color: "#4a4a6a" }}><p style={{ fontSize: 14 }}>{isMaster ? "Nessuna voce. Clicca + Aggiungi." : "Nessun contenuto disponibile."}</p></div>;
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {isMaster && <div style={{ padding: "8px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center", flexShrink: 0 }}>
+        {confirmClear ? <><span style={{ fontSize: 12, color: "#ef4444" }}>Svuotare?</span><button onClick={() => { onClear(); setConfirmClear(false); }} style={{ padding: "5px 12px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button><button onClick={() => setConfirmClear(false)} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>No</button></> : <button onClick={() => setConfirmClear(true)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>🗑 Svuota</button>}
+      </div>}
+      <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
+          {entries.map(e => <div key={e.id} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: 16, cursor: isMaster ? "pointer" : "default", transition: "border-color 0.15s" }} onMouseEnter={el => isMaster && (el.currentTarget.style.borderColor = accent + "60")} onMouseLeave={el => (el.currentTarget.style.borderColor = "rgba(255,255,255,0.08)")} onClick={() => isMaster && onEdit(e)}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#e2d9f3" }}>{e.title || "(senza titolo)"}</h3>
+              {isMaster && <button onClick={ev => { ev.stopPropagation(); onDelete(e.id); }} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14, padding: 0 }}>🗑</button>}
+            </div>
+            <p style={{ margin: 0, fontSize: 12, color: "#8b7aa8", lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{e.publicContent || "—"}</p>
+            {isMaster && e.privateContent && <div style={{ marginTop: 8, padding: "4px 8px", borderRadius: 6, background: "rgba(124,58,237,0.12)", fontSize: 11, color: "#a78bfa" }}>🔐 Contiene segreti</div>}
+          </div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EntryEditor({ entry, onSave, onCancel, accent }) {
+  const [e, setE] = useState({ ...entry }), [loading, setLoading] = useState(false);
+  const upd = (k, v) => setE(p => ({ ...p, [k]: v }));
+  async function handleFile(ev) {
+    const f = ev.target.files?.[0]; if (!f) return; setLoading(true);
+    try { const text = await readFile(f); setE(p => ({ ...p, title: p.title || f.name.replace(/\.[^.]+$/, ""), publicContent: text })); }
+    catch (err) { alert(`Errore: ${err.message}`); } setLoading(false); ev.target.value = "";
+  }
+  return (
+    <div style={{ maxWidth: 700, margin: "0 auto" }}>
+      <div style={{ marginBottom: 20 }}>
+        <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 24px", borderRadius: 12, border: "2px dashed rgba(16,185,129,0.4)", background: "rgba(16,185,129,0.06)", color: loading ? "#8b7aa8" : "#10b981", fontWeight: 700, fontSize: 14, cursor: loading ? "wait" : "pointer" }}>
+          {loading ? "⏳ Lettura in corso..." : "📂 Carica file (PDF, TXT...)"}
+          <input type="file" accept=".txt,.md,.json,.csv,.pdf,.docx" disabled={loading} style={{ display: "none" }} onChange={handleFile} />
+        </label>
+      </div>
+      <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, color: "#8b7aa8", display: "block", marginBottom: 6 }}>Titolo</label><input value={e.title} onChange={ev => upd("title", ev.target.value)} placeholder="Nome..." style={{ width: "100%", padding: "12px 16px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 15, fontWeight: 700, boxSizing: "border-box" }} /></div>
+      <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, color: "#0ea5e9", display: "block", marginBottom: 6 }}>👥 Contenuto Pubblico</label><textarea value={e.publicContent} onChange={ev => upd("publicContent", ev.target.value)} placeholder="Info pubbliche..." style={{ width: "100%", height: 200, padding: 14, borderRadius: 10, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.04)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} /></div>
+      <div style={{ marginBottom: 24 }}><label style={{ fontSize: 12, color: "#a855f7", display: "block", marginBottom: 6 }}>🔐 Contenuto Segreto (solo Master)</label><textarea value={e.privateContent} onChange={ev => upd("privateContent", ev.target.value)} placeholder="Segreti, twist, note DM..." style={{ width: "100%", height: 200, padding: 14, borderRadius: 10, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(124,58,237,0.06)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} /></div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={() => onSave(e)} style={{ padding: "12px 28px", borderRadius: 10, border: "none", background: `linear-gradient(90deg,${accent},#a855f7)`, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>💾 Salva</button>
+        <button onClick={onCancel} style={{ padding: "12px 20px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 14 }}>Annulla</button>
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [mode, setMode] = useState("login"), [masterPwd, setMasterPwd] = useState(""), [inputPwd, setInputPwd] = useState(""), [pwdSet, setPwdSet] = useState(false);
+  const [activeSection, setActiveSection] = useState("razze"), [data, setData] = useState({}), [editingEntry, setEditingEntry] = useState(null);
+  const [aiQuery, setAiQuery] = useState(""), [aiHistory, setAiHistory] = useState([]), [aiLoading, setAiLoading] = useState(false);
+  const [view, setView] = useState("section"), [importText, setImportText] = useState(""), [importSection, setImportSection] = useState("razze");
+  const [importLoading, setImportLoading] = useState(false), [importFileName, setImportFileName] = useState(""), [saved, setSaved] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true), [confirmClear, setConfirmClear] = useState(false);
+  const aiBottomRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) { const p = JSON.parse(raw); if (p?.data) setData(p.data); if (p?.masterPwd) { setMasterPwd(p.masterPwd); setPwdSet(true); } if (p?.aiHistory) setAiHistory(p.aiHistory); }
+    } catch {}
+  }, []);
+
+  useEffect(() => { aiBottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [aiHistory, aiLoading]);
+
+  function persist(nd, nh) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ data: nd ?? data, masterPwd, aiHistory: nh ?? aiHistory })); setSaved(true); setTimeout(() => setSaved(false), 1500); } catch {}
+  }
+
+  function handleLogin() {
+    if (!pwdSet) { setMasterPwd(inputPwd); setPwdSet(true); setMode("master"); setInputPwd(""); persist(data, aiHistory); }
+    else if (inputPwd === masterPwd) { setMode("master"); setInputPwd(""); }
+    else { alert("Password errata!"); setInputPwd(""); }
+  }
+  function handleReset() {
+    localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(DIARIO_KEY); localStorage.removeItem(PG_PRES_KEY);
+    setData({}); setMasterPwd(""); setPwdSet(false); setAiHistory([]); setInputPwd("");
+  }
+  function exportData() {
+    const blob = new Blob([JSON.stringify({ data, aiHistory }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `dark_matter_backup_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+  }
+  function importData(ev) {
+    const f = ev.target.files?.[0]; if (!f) return;
+    f.text().then(txt => {
+      try { const p = JSON.parse(txt); if (p.data) { setData(p.data); if (p.aiHistory) setAiHistory(p.aiHistory); persist(p.data, p.aiHistory || []); alert("✅ Backup ripristinato!"); } } catch { alert("❌ File non valido."); }
+    }); ev.target.value = "";
+  }
+  const getEntries = (sid) => data[sid] || [];
+  function saveEntry(entry) {
+    const list = getEntries(activeSection), idx = list.findIndex(e => e.id === entry.id);
+    const nd = { ...data, [activeSection]: idx >= 0 ? list.map(e => e.id === entry.id ? entry : e) : [...list, entry] };
+    setData(nd); persist(nd, aiHistory); setView("section"); setEditingEntry(null);
+  }
+  function deleteEntry(id) { const nd = { ...data, [activeSection]: getEntries(activeSection).filter(e => e.id !== id) }; setData(nd); persist(nd, aiHistory); }
+  function clearSection() { const nd = { ...data, [activeSection]: [] }; setData(nd); persist(nd, aiHistory); setConfirmClear(false); }
+  function buildLore(forMaster) {
+    let ctx = "# LORE DARK MATTER\n\n";
+    SECTIONS.forEach(sec => { const list = data[sec.id] || []; if (!list.length) return; ctx += `## ${sec.label}\n`; list.forEach(e => { ctx += `### ${e.title || "?"}\n${e.publicContent || "-"}\n`; if (forMaster && e.privateContent) ctx += `[SEGRETO]: ${e.privateContent}\n`; ctx += "\n"; }); });
+    return ctx;
+  }
+  async function askAI() {
+    if (!aiQuery.trim() || aiLoading) return;
+    const q = aiQuery; setAiQuery(""); setAiLoading(true);
+    const isM = mode === "master", sys = isM ? "Sei l'assistente del DM per Dark Matter. Accesso totale al lore. Rispondi in italiano." : "Sei un oracolo per i giocatori di Dark Matter. Solo info pubbliche. Rispondi in italiano.";
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: sys, messages: [{ role: "user", content: `LORE:\n${buildLore(isM)}\n\nDOMANDA: ${q}` }] }) });
+      const json = await res.json(), ans = json.content?.map(b => b.text || "").join("") || "Nessuna risposta.";
+      const nh = [...aiHistory, { q, a: ans, ts: new Date().toLocaleTimeString() }]; setAiHistory(nh); persist(data, nh);
+    } catch (err) { setAiHistory(h => [...h, { q, a: `⚠️ ${err.message}`, ts: "" }]); }
+    setAiLoading(false);
+  }
+  async function handleFileUpload(ev) {
+    const f = ev.target.files?.[0]; if (!f) return; setImportLoading(true); setImportFileName(f.name); setImportText("");
+    try { setImportText(await readFile(f)); } catch (err) { alert(`Errore: ${err.message}`); } setImportLoading(false); ev.target.value = "";
+  }
+  function handleImport() {
+    if (!importText.trim()) return;
+    const entry = mkEntry(); entry.title = importFileName ? importFileName.replace(/\.[^.]+$/, "") : `Import ${new Date().toLocaleDateString()}`; entry.publicContent = importText;
+    const nd = { ...data, [importSection]: [...getEntries(importSection), entry] }; setData(nd); persist(nd, aiHistory);
+    setImportText(""); setImportFileName(""); setView("section"); setActiveSection(importSection);
+  }
+
+  const isMaster = mode === "master", accent = isMaster ? "#7c3aed" : "#0ea5e9";
+  const curSec = SECTIONS.find(s => s.id === activeSection), entries = getEntries(activeSection);
+  const pgList = getEntries("pg");
+  const SPECIAL = ["razze","storia","campagna","pg","png","diario"];
+
+  if (mode === "login") return (
+    <div style={{ background: "linear-gradient(135deg,#0f0f1a,#1a0a2e)", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI',sans-serif" }}>
+      <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 16, padding: 40, width: 340, textAlign: "center" }}>
+        <div style={{ fontSize: 48, marginBottom: 8 }}>🌌</div>
+        <h1 style={{ color: "#e2d9f3", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>Dark Matter</h1>
+        <p style={{ color: "#8b7aa8", fontSize: 13, margin: "0 0 24px" }}>Compendio di Campagna</p>
+        <button onClick={() => setMode("player")} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "1px solid #0ea5e9", background: "transparent", color: "#0ea5e9", fontWeight: 600, cursor: "pointer", fontSize: 13, marginBottom: 12 }}>👥 Accedi come Giocatore</button>
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 16 }}>
+          <p style={{ color: "#8b7aa8", fontSize: 12, margin: "0 0 10px" }}>{pwdSet ? "Accesso Master" : "Crea password Master"}</p>
+          <input type="password" placeholder={pwdSet ? "Password..." : "Scegli una password..."} value={inputPwd} onChange={e => setInputPwd(e.target.value)} onKeyDown={e => e.key === "Enter" && handleLogin()} style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.07)", color: "#fff", fontSize: 14, boxSizing: "border-box", marginBottom: 10 }} />
+          <button onClick={handleLogin} style={{ width: "100%", padding: "10px 0", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 14, marginBottom: 12 }}>🔐 {pwdSet ? "Entra come Master" : "Crea Account Master"}</button>
+          <button onClick={handleReset} style={{ width: "100%", padding: "7px 0", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef444480", cursor: "pointer", fontSize: 11 }}>🗑 Reset dati</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const sidebarItems = [
+    { id: "ai", icon: "🤖", label: "AI Oracolo", color: "#a855f7" },
+    ...(isMaster ? [{ id: "import", icon: "📥", label: "Importa Lore", color: "#10b981" }, { id: "backup", icon: "💾", label: "Backup", color: "#f59e0b" }] : []),
+    { id: "logout", icon: "🚪", label: "Esci", color: "#8b7aa8" }
+  ];
+
+  return (
+    <div style={{ display: "flex", height: "100vh", background: "#0f0f1a", fontFamily: "'Segoe UI',sans-serif", color: "#e2d9f3", overflow: "hidden" }}>
+      <div style={{ width: sidebarOpen ? 220 : 56, transition: "width 0.2s", background: "#12122a", borderRight: "1px solid rgba(255,255,255,0.07)", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        <div style={{ padding: "16px 12px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+          <button onClick={() => setSidebarOpen(v => !v)} style={{ background: "none", border: "none", color: "#8b7aa8", cursor: "pointer", fontSize: 18, padding: 0 }}>☰</button>
+          {sidebarOpen && <span style={{ fontSize: 13, fontWeight: 700, color: accent }}>🌌 Dark Matter</span>}
+        </div>
+        {sidebarOpen && <div style={{ margin: "10px 10px 0", padding: "6px 10px", borderRadius: 8, background: isMaster ? "rgba(124,58,237,0.15)" : "rgba(14,165,233,0.15)", border: `1px solid ${accent}30`, fontSize: 11, fontWeight: 700, color: accent, textAlign: "center" }}>{isMaster ? "⚙️ MASTER" : "👤 GIOCATORE"}</div>}
+        <nav style={{ flex: 1, overflowY: "auto", padding: "8px 6px" }}>
+          {SECTIONS.map(sec => { const active = activeSection === sec.id && view === "section"; return <button key={sec.id} onClick={() => { setActiveSection(sec.id); setView("section"); setConfirmClear(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 8px", borderRadius: 8, border: "none", background: active ? `${accent}20` : "transparent", color: active ? accent : "#8b7aa8", cursor: "pointer", fontSize: 13, fontWeight: active ? 700 : 400, textAlign: "left", marginBottom: 2 }}><span style={{ fontSize: 16, flexShrink: 0 }}>{sec.icon}</span>{sidebarOpen && <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sec.label}</span>}</button>; })}
+        </nav>
+        <div style={{ padding: "10px 6px", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+          {sidebarItems.map(item => <button key={item.id} onClick={() => item.id === "logout" ? setMode("login") : setView(item.id)} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "9px 8px", borderRadius: 8, border: "none", background: view === item.id ? `${item.color}20` : "transparent", color: view === item.id ? item.color : "#8b7aa8", cursor: "pointer", fontSize: 13, fontWeight: 600, marginBottom: 2 }}><span style={{ fontSize: 16 }}>{item.icon}</span>{sidebarOpen && item.label}</button>)}
+        </div>
+      </div>
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "14px 24px", borderBottom: "1px solid rgba(255,255,255,0.07)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#12122a", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 20 }}>{view === "ai" ? "🤖" : view === "import" ? "📥" : view === "backup" ? "💾" : curSec?.icon}</span>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{view === "ai" ? "AI Oracolo" : view === "import" ? "Importa Lore" : view === "backup" ? "Backup & Ripristino" : view === "edit" ? "Modifica Voce" : curSec?.label}</h2>
+            {saved && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Salvato</span>}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {view === "section" && isMaster && !SPECIAL.includes(activeSection) && entries.length > 0 && (confirmClear
+              ? <><span style={{ fontSize: 12, color: "#ef4444" }}>Sicuro?</span><button onClick={clearSection} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Sì</button><button onClick={() => setConfirmClear(false)} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>No</button></>
+              : <button onClick={() => setConfirmClear(true)} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontWeight: 600, cursor: "pointer", fontSize: 13 }}>🗑 Svuota</button>
+            )}
+            {view === "section" && isMaster && !["storia","diario"].includes(activeSection) && (
+              <button onClick={() => { setEditingEntry(mkEntry()); setView("edit"); }} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: `linear-gradient(90deg,${accent},#a855f7)`, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>+ Aggiungi</button>
+            )}
+            {(view === "edit" || view === "import" || view === "backup") && <button onClick={() => setView("section")} style={{ padding: "7px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 13 }}>← Indietro</button>}
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+          {view === "section" && activeSection === "razze" && <RaceSection entries={entries} isMaster={isMaster} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
+          {view === "section" && activeSection === "storia" && <TimelineView entries={entries} />}
+          {view === "section" && activeSection === "campagna" && <CampagnaView entries={entries} isMaster={isMaster} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
+          {view === "section" && activeSection === "pg" && <PgSection entries={entries} isMaster={isMaster} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
+          {view === "section" && activeSection === "png" && <PngSection entries={entries} isMaster={isMaster} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
+          {view === "section" && activeSection === "diario" && <DiarioView pgList={pgList} isMaster={isMaster} />}
+          {view === "section" && !SPECIAL.includes(activeSection) && <GenericSection entries={entries} isMaster={isMaster} accent={accent} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} onClear={clearSection} />}
+
+          {view === "edit" && editingEntry && isMaster && (
+            <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+              {activeSection === "png"
+                ? <PngEditor entry={editingEntry} onSave={saveEntry} onCancel={() => setView("section")} accent={accent} />
+                : <EntryEditor entry={editingEntry} onSave={saveEntry} onCancel={() => setView("section")} accent={accent} />}
+            </div>
+          )}
+
+          {view === "backup" && isMaster && (
+            <div style={{ flex: 1, overflowY: "auto", padding: 40 }}>
+              <div style={{ maxWidth: 500, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
+                <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: 14, padding: 24 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#f59e0b", marginBottom: 8 }}>📤 Esporta Backup</div>
+                  <p style={{ fontSize: 13, color: "#8b7aa8", margin: "0 0 16px" }}>Scarica tutti i dati in un file JSON.</p>
+                  <button onClick={exportData} style={{ padding: "12px 24px", borderRadius: 10, border: "none", background: "linear-gradient(90deg,#f59e0b,#d97706)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>💾 Scarica Backup JSON</button>
+                </div>
+                <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)", borderRadius: 14, padding: 24 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#10b981", marginBottom: 8 }}>📥 Ripristina Backup</div>
+                  <p style={{ fontSize: 13, color: "#8b7aa8", margin: "0 0 16px" }}>Carica un JSON precedente. <strong style={{ color: "#ef4444" }}>Sovrascrive i dati attuali.</strong></p>
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "12px 24px", borderRadius: 10, border: "2px dashed rgba(16,185,129,0.4)", background: "rgba(16,185,129,0.06)", color: "#10b981", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                    📂 Carica file JSON
+                    <input type="file" accept=".json" style={{ display: "none" }} onChange={importData} />
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {view === "ai" && (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: 24, overflow: "hidden" }}>
+              <div style={{ maxWidth: 720, width: "100%", margin: "0 auto", display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+                <div style={{ marginBottom: 12, padding: "10px 14px", borderRadius: 10, background: isMaster ? "rgba(124,58,237,0.1)" : "rgba(14,165,233,0.1)", border: `1px solid ${accent}30`, fontSize: 12, color: accent, flexShrink: 0 }}>{isMaster ? "⚙️ Master: l'AI conosce tutto il lore." : "👤 Giocatore: solo info pubbliche."}</div>
+                <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12, paddingBottom: 8 }}>
+                  {aiHistory.length === 0 && <div style={{ color: "#4a4a6a", textAlign: "center", paddingTop: 60 }}>Fai una domanda sull'universo Dark Matter...</div>}
+                  {aiHistory.map((h, i) => (
+                    <div key={i}>
+                      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}><div style={{ background: `${accent}20`, border: `1px solid ${accent}30`, borderRadius: "12px 12px 4px 12px", padding: "8px 14px", maxWidth: "75%", fontSize: 13 }}>{h.q}</div></div>
+                      <div style={{ display: "flex", gap: 8 }}><span style={{ fontSize: 20 }}>🤖</span><div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "4px 12px 12px 12px", padding: "8px 14px", maxWidth: "80%", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{h.a}</div></div>
+                    </div>
+                  ))}
+                  {aiLoading && <div style={{ color: "#8b7aa8", fontSize: 13, textAlign: "center" }}>⏳ Consultando il lore...</div>}
+                  <div ref={aiBottomRef} />
+                </div>
+                <div style={{ display: "flex", gap: 10, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.07)", flexShrink: 0 }}>
+                  <input value={aiQuery} onChange={e => setAiQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && askAI()} placeholder="Chiedi qualcosa sul lore..." style={{ flex: 1, padding: "12px 16px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 14 }} />
+                  <button onClick={askAI} disabled={aiLoading} style={{ padding: "12px 20px", borderRadius: 10, border: "none", background: `linear-gradient(90deg,${accent},#a855f7)`, color: "#fff", fontWeight: 700, cursor: aiLoading ? "not-allowed" : "pointer", opacity: aiLoading ? 0.6 : 1 }}>✨ Chiedi</button>
+                </div>
+                {aiHistory.length > 0 && <button onClick={() => { setAiHistory([]); persist(data, []); }} style={{ marginTop: 8, background: "none", border: "none", color: "#4a4a6a", fontSize: 12, cursor: "pointer" }}>🗑 Cancella cronologia</button>}
+              </div>
+            </div>
+          )}
+
+          {view === "import" && isMaster && (
+            <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+              <div style={{ maxWidth: 640, margin: "0 auto" }}>
+                <p style={{ color: "#8b7aa8", fontSize: 13, marginBottom: 20 }}>Carica un file o incolla il testo.</p>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 12, color: "#8b7aa8", display: "block", marginBottom: 6 }}>Sezione di destinazione</label>
+                  <select value={importSection} onChange={e => setImportSection(e.target.value)} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "#1a1a35", color: "#e2d9f3", fontSize: 14, width: "100%" }}>
+                    {SECTIONS.map(s => <option key={s.id} value={s.id}>{s.icon} {s.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "18px 24px", borderRadius: 12, border: "2px dashed rgba(16,185,129,0.4)", background: "rgba(16,185,129,0.08)", color: importLoading ? "#8b7aa8" : "#10b981", fontWeight: 700, fontSize: 14, cursor: importLoading ? "wait" : "pointer" }}>
+                    {importLoading ? "⏳ Lettura..." : importFileName ? `✅ ${importFileName}` : "📂 Scegli file"}
+                    <input type="file" accept=".txt,.md,.json,.csv,.pdf" disabled={importLoading} style={{ display: "none" }} onChange={handleFileUpload} />
+                  </label>
+                </div>
+                <textarea value={importText} onChange={e => setImportText(e.target.value)} placeholder="...oppure incolla qui" style={{ width: "100%", height: 240, padding: 14, borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.04)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} />
+                <button onClick={handleImport} disabled={!importText.trim()} style={{ marginTop: 12, padding: "12px 28px", borderRadius: 10, border: "none", background: "linear-gradient(90deg,#10b981,#059669)", color: "#fff", fontWeight: 700, cursor: importText.trim() ? "pointer" : "not-allowed", fontSize: 14, opacity: importText.trim() ? 1 : 0.5 }}>📥 Importa</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
 </body>
 </html>
