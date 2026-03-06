@@ -157,11 +157,11 @@ function parseTimeline(text) {
 
 const ERA_COLORS = ["#c8a84b","#3aaa6a","#00c8b0","#cc3333","#d4922a","#00b4d8","#88aaff","#d4af37","#a78bfa","#f472b6"];
 
-function TimelineView({ entries }) {
+function TimelineView({ entries, isMaster, onAdd, onDelete }) {
   const [selEvent, setSelEvent] = useState(null), [selEpoca, setSelEpoca] = useState(null);
   const scrollRef = useRef(null), [dragging, setDragging] = useState(false), [startX, setStartX] = useState(0), [scrollLeft, setScrollLeft] = useState(0);
   const epoche = entries.flatMap(e => parseTimeline(e.public_content).epoche);
-  if (!epoche.length) return <Empty icon="📜" text="Nessuna timeline." />;
+ if (!epoche.length) return <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>{isMaster && <div style={{ padding: "8px 16px", display: "flex", justifyContent: "flex-end" }}><button onClick={onAdd} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>+ Aggiungi</button></div>}<Empty icon="📜" text="Nessuna timeline." /></div>;
   const onMD = e => { setDragging(true); setStartX(e.pageX - scrollRef.current.offsetLeft); setScrollLeft(scrollRef.current.scrollLeft); };
   const onMM = e => { if (!dragging) return; e.preventDefault(); scrollRef.current.scrollLeft = scrollLeft - (e.pageX - scrollRef.current.offsetLeft - startX); };
   const onMU = () => setDragging(false);
@@ -184,6 +184,7 @@ function TimelineView({ entries }) {
   }
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {isMaster && <div style={{ padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}><button onClick={onAdd} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>+ Aggiungi</button></div>}
       <div style={{ padding: "8px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "#4a4a6a", display: "flex", gap: 20, flexShrink: 0 }}>
         <span>⬅ trascina per scorrere · Anno 0 = Primo portale MAW · {epoche.reduce((a, e) => a + e.eventi.length, 0)} eventi</span>
       </div>
@@ -1182,7 +1183,7 @@ function CambioPasswordModal({ username, isMaster, onClose }) {
           {view === "section" && activeSection === "razze" && (
             <RazzeSection entries={sectionEntries} isMaster={isMaster} player={session} unlocks={isMaster ? unlocks : playerUnlocks} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} onUnlock={handleUnlock} />
           )}
-          {view === "section" && activeSection === "storia" && <TimelineView entries={sectionEntries} />}
+          {view === "section" && activeSection === "storia" && <TimelineView entries={sectionEntries} isMaster={isMaster} onAdd={() => { setEditingEntry(null); setView("edit"); }} onDelete={deleteEntry} />}
           {view === "section" && activeSection === "campagna" && <GenericDualSection entries={sectionEntries} isMaster={isMaster} accent="#a78bfa" sectionIcon="🌌" sectionLabel="Campagna" onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
           {view === "section" && activeSection === "pg" && <PgSection entries={sectionEntries} isMaster={isMaster} player={session} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
           {view === "section" && activeSection === "png" && <PngSection entries={sectionEntries} isMaster={isMaster} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
