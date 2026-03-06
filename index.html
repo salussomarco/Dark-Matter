@@ -101,7 +101,8 @@ function MD({ text, accentColor: accent = "#a78bfa" }) {
   let i = 0;
   while (i < lines.length) {
     const l = lines[i];
-    if (/^### /.test(l)) { els.push(<h4 key={i} style={{ margin: "20px 0 8px", fontSize: 12, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "1.5px", borderBottom: `1px solid ${accent}33`, paddingBottom: 5 }}>{l.slice(4)}</h4>); i++; }
+    else if (/^###.+###$/.test(l.trim())) { els.push(<h4 key={i} style={{ margin: "20px 0 8px", fontSize: 12, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "1.5px", borderBottom: `1px solid ${accent}33`, paddingBottom: 5 }}>{l.trim().replace(/^###|###$/g, "")}</h4>); i++; }
+    else if (/^### /.test(l)) { els.push(<h4 key={i} style={{ margin: "20px 0 8px", fontSize: 12, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "1.5px", borderBottom: `1px solid ${accent}33`, paddingBottom: 5 }}>{l.slice(4)}</h4>); i++; }
     else if (/^## /.test(l)) { els.push(<h3 key={i} style={{ margin: "22px 0 8px", fontSize: 15, fontWeight: 700, color: accent }}>{l.slice(3)}</h3>); i++; }
     else if (/^# /.test(l)) { els.push(<h2 key={i} style={{ margin: "0 0 16px", fontSize: 20, fontWeight: 800, color: "#e2d9f3" }}>{l.slice(2)}</h2>); i++; }
     else if (/^---+$/.test(l.trim())) { els.push(<hr key={i} style={{ border: "none", borderTop: `1px solid ${accent}33`, margin: "16px 0" }} />); i++; }
@@ -111,6 +112,19 @@ function MD({ text, accentColor: accent = "#a78bfa" }) {
     else { let block = ""; while (i < lines.length && lines[i].trim() !== "" && !/^[#\-*•]/.test(lines[i]) && !/^\d+\. /.test(lines[i]) && !/^---+$/.test(lines[i].trim())) { block += (block ? " " : "") + lines[i]; i++; } els.push(<p key={i} style={{ margin: "0 0 12px", fontSize: 13.5, color: "#c8bfe8", lineHeight: 1.85 }} dangerouslySetInnerHTML={{ __html: inlineFmt(block) }} />); }
   }
   return <div>{els}</div>;
+```
+
+Nota: la prima riga inizia con `else if` — ma siccome è la prima del blocco `while`, devi assicurarti che prima ci sia `if`. Cerca con Ctrl+F `if (/^### /.test(l))` e sostituisci solo quella prima occorrenza cambiando `if` in `else if` e aggiungendo la nuova riga sopra con un `if`. 
+
+Più semplice — cerca esattamente:
+```
+if (/^### /.test(l))
+```
+
+E sostituisci con:
+```
+if (/^###.+###$/.test(l.trim())) { els.push(<h4 key={i} style={{ margin: "20px 0 8px", fontSize: 12, fontWeight: 700, color: accent, textTransform: "uppercase", letterSpacing: "1.5px", borderBottom: `1px solid ${accent}33`, paddingBottom: 5 }}>{l.trim().replace(/^###|###$/g, "")}</h4>); i++; }
+    else if (/^### /.test(l))
 }
 
 // ── TIMELINE ──────────────────────────────────────────────────────────────────
