@@ -190,6 +190,7 @@ function TimelineView({ entries, isMaster, onAdd, onDelete }) {
       </div>
       <div ref={scrollRef} onMouseDown={onMD} onMouseMove={onMM} onMouseUp={onMU} onMouseLeave={onMU} style={{ flex: 1, overflowX: "auto", overflowY: "hidden", cursor: dragging ? "grabbing" : "grab", userSelect: "none", padding: "0 40px" }}>
         <div style={{ display: "flex", alignItems: "stretch", height: "100%", minWidth: "max-content", paddingTop: 20 }}>
+          {isMaster && entries.map(e => <div key={e.id} style={{ padding: "6px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.04)" }}><span style={{ fontSize: 12, color: "#6d5fa0" }}>{e.title}</span><button onClick={() => onDelete(e.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 13 }}>🗑</button></div>)}
           {epoche.map((epoca, ei) => {
             const C = ERA_COLORS[ei % ERA_COLORS.length], isOpen = selEpoca === ei;
             return (
