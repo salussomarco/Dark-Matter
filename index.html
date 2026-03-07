@@ -184,7 +184,7 @@ function TimelineView({ entries, isMaster, onAdd, onDelete }) {
   }
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {isMaster && <div style= {isMaster && <div style={{ padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "flex-end", gap: 8, flexShrink: 0 }}>{entries.map(e => <button key={e.id} onClick={() => onDelete(e.id)} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>🗑 {e.title}</button>)}<button onClick={onAdd} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>+ Aggiungi</button></div>}
+      {isMaster && <div style={{ padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}><button onClick={onAdd} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>+ Aggiungi</button></div>}
       <div style={{ padding: "8px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "#4a4a6a", display: "flex", gap: 20, flexShrink: 0 }}>
         <span>⬅ trascina per scorrere · Anno 0 = Primo portale MAW · {epoche.reduce((a, e) => a + e.eventi.length, 0)} eventi</span>
       </div>
