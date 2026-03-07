@@ -46,6 +46,8 @@ const SECTIONS = [
   { id: "eventi", label: "Eventi Importanti", icon: "⚡" },
   { id: "missioni", label: "Missioni Secondarie", icon: "🗺️" },
   { id: "diario", label: "Diario di Bordo", icon: "📓" },
+  { id: "mappa", label: "Mappa Stellare", icon: "🌠" },
+  { id: "aimaster", label: "AI Master", icon: "🤖" },
   { id: "manuale", label: "Manuale", icon: "📖" },
 ];
 
@@ -716,8 +718,10 @@ function MissioniSection({ entries, isMaster, player, onEdit, onDelete }) {
 
 // ── SEZIONE DIARIO ────────────────────────────────────────────────────────────
 function DiarioSection({ isMaster, player, allPgEntries }) {
-  const [voci, setVoci] = useState([]);
-  const [selPlayer, setSelPlayer] = useState(isMaster ? "tutti" : player?.username);
+  const [tab, setTab] = useState("pubblica"); // "pubblica" | "privata"
+  const [vociPub, setVociPub] = useState([]);
+  const [vociPriv, setVociPriv] = useState([]);
+  const [selPlayer, setSelPlayer] = useState("tutti");
   const [writing, setWriting] = useState(false);
   const [testo, setTesto] = useState("");
   const [sessione, setSessione] = useState("");
@@ -725,79 +729,430 @@ function DiarioSection({ isMaster, player, allPgEntries }) {
 
   useEffect(() => {
     setLoading(true);
-    let q = sb.from("diario").select("*").order("created_at", { ascending: false });
-    if (!isMaster) q = q.eq("player_username", player?.username);
-    q.then(({ data }) => { setVoci(data || []); setLoading(false); });
+    Promise.all([
+      sb.from("diario").select("*").eq("tipo", "pubblica").order("created_at", { ascending: false }),
+      isMaster
+        ? sb.from("diario").select("*").eq("tipo", "privata").order("created_at", { ascending: false })
+        : sb.from("diario").select("*").eq("tipo", "privata").eq("player_username", player?.username).order("created_at", { ascending: false })
+    ]).then(([pub, priv]) => {
+      setVociPub(pub.data || []);
+      setVociPriv(priv.data || []);
+      setLoading(false);
+    });
   }, [isMaster, player?.username]);
 
   async function submitVoce() {
     if (!testo.trim()) return;
-    const { data } = await sb.from("diario").insert({ player_username: player.username, testo: testo.trim(), sessione, stato: isMaster ? "approved" : "pending" }).select().single();
-    if (data) setVoci(prev => [data, ...prev]);
+    const { data } = await sb.from("diario").insert({
+      player_username: player.username,
+      testo: testo.trim(),
+      sessione,
+      tipo: tab,
+      stato: "approved"
+    }).select().single();
+    if (data) {
+      if (tab === "pubblica") setVociPub(prev => [data, ...prev]);
+      else setVociPriv(prev => [data, ...prev]);
+    }
     setTesto(""); setSessione(""); setWriting(false);
   }
-  async function approva(id) { await sb.from("diario").update({ stato: "approved" }).eq("id", id); setVoci(prev => prev.map(v => v.id === id ? { ...v, stato: "approved" } : v)); }
-  async function elimina(id) { await sb.from("diario").delete().eq("id", id); setVoci(prev => prev.filter(v => v.id !== id)); }
 
-  const pendingVoci = isMaster ? voci.filter(v => v.stato === "pending") : [];
-  const approvedVoci = voci.filter(v => v.stato === "approved" && (selPlayer === "tutti" || v.player_username === selPlayer));
+  async function elimina(id, tipo) {
+    await sb.from("diario").delete().eq("id", id);
+    if (tipo === "pubblica") setVociPub(prev => prev.filter(v => v.id !== id));
+    else setVociPriv(prev => prev.filter(v => v.id !== id));
+  }
 
-  const getPgName = (username) => {
-    const pg = allPgEntries.find(e => e.extra?.owner === username);
-    return pg ? pg.title : username;
-  };
+  const vociCorrente = tab === "pubblica"
+    ? vociPub.filter(v => selPlayer === "tutti" || v.player_username === selPlayer)
+    : vociPriv.filter(v => selPlayer === "tutti" || v.player_username === selPlayer);
+
+  const BtnTab = ({ id, label, icon }) => (
+    <button onClick={() => { setTab(id); setWriting(false); }} style={{
+      padding: "7px 18px", borderRadius: 20, border: `1px solid ${tab === id ? "#a78bfa88" : "#a78bfa33"}`,
+      background: tab === id ? "rgba(167,139,250,0.18)" : "transparent",
+      color: tab === id ? "#a78bfa" : "#6d5fa0", fontSize: 12, fontWeight: 700, cursor: "pointer"
+    }}>{icon} {label}</button>
+  );
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {isMaster && pendingVoci.length > 0 && (
-        <div style={{ padding: "10px 20px", borderBottom: "1px solid rgba(245,158,11,0.2)", background: "rgba(245,158,11,0.05)", flexShrink: 0 }}>
-          <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 700, marginBottom: 8 }}>⏳ IN ATTESA ({pendingVoci.length})</div>
-          {pendingVoci.map(v => <div key={v.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "8px 12px", borderRadius: 10, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", marginBottom: 6 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 700, marginBottom: 3, textTransform: "capitalize" }}>{v.player_username} {v.sessione ? `· ${v.sessione}` : ""}</div>
-              <div style={{ fontSize: 12, color: "#c8bfe8" }}>{v.testo}</div>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => approva(v.id)} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "#22c55e", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 11 }}>✓</button>
-              <button onClick={() => elimina(v.id)} style={{ padding: "4px 10px", borderRadius: 8, border: "none", background: "#ef4444", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 11 }}>✕</button>
-            </div>
-          </div>)}
+      {/* Tab bar */}
+      <div style={{ padding: "10px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", flexShrink: 0 }}>
+        <BtnTab id="pubblica" label="Diario Pubblico" icon="📖" />
+        <BtnTab id="privata" label="Diario Privato" icon="🔒" />
+        <div style={{ flex: 1 }} />
+        {!writing && <button onClick={() => setWriting(true)} style={{ padding: "6px 16px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>✍️ Scrivi</button>}
+      </div>
+
+      {/* Filtro per giocatore (solo master, solo pubblica) */}
+      {isMaster && tab === "pubblica" && (
+        <div style={{ padding: "8px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", gap: 6, flexWrap: "wrap", flexShrink: 0 }}>
+          <button onClick={() => setSelPlayer("tutti")} style={{ padding: "3px 10px", borderRadius: 20, border: `1px solid ${selPlayer === "tutti" ? "#a78bfa66" : "#a78bfa22"}`, background: selPlayer === "tutti" ? "rgba(167,139,250,0.12)" : "transparent", color: selPlayer === "tutti" ? "#a78bfa" : "#4a4a6a", fontSize: 11, cursor: "pointer" }}>Tutti</button>
+          {PLAYERS_DEFAULT.map(p => <button key={p.username} onClick={() => setSelPlayer(p.username)} style={{ padding: "3px 10px", borderRadius: 20, border: `1px solid ${selPlayer === p.username ? "#a78bfa66" : "#a78bfa22"}`, background: selPlayer === p.username ? "rgba(167,139,250,0.12)" : "transparent", color: selPlayer === p.username ? "#a78bfa" : "#4a4a6a", fontSize: 11, cursor: "pointer", textTransform: "capitalize" }}>{p.username}</button>)}
         </div>
       )}
-      <div style={{ padding: "10px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", flexShrink: 0 }}>
-        {isMaster && <>
-          <button onClick={() => setSelPlayer("tutti")} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${selPlayer === "tutti" ? "#a78bfa88" : "#a78bfa33"}`, background: selPlayer === "tutti" ? "rgba(167,139,250,0.15)" : "transparent", color: selPlayer === "tutti" ? "#a78bfa" : "#6d5fa0", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>📓 Tutti</button>
-          {PLAYERS_DEFAULT.map(p => <button key={p.username} onClick={() => setSelPlayer(p.username)} style={{ padding: "4px 12px", borderRadius: 20, border: `1px solid ${selPlayer === p.username ? "#a78bfa88" : "#a78bfa33"}`, background: selPlayer === p.username ? "rgba(167,139,250,0.15)" : "transparent", color: selPlayer === p.username ? "#a78bfa" : "#6d5fa0", fontSize: 11, fontWeight: 600, cursor: "pointer", textTransform: "capitalize" }}>{p.username}</button>)}
-        </>}
-        {!isMaster && !writing && <button onClick={() => setWriting(true)} style={{ marginLeft: "auto", padding: "6px 14px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>✍️ Scrivi</button>}
-      </div>
-      {writing && !isMaster && (
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(167,139,250,0.2)", background: "rgba(167,139,250,0.05)", flexShrink: 0 }}>
-          <input value={sessione} onChange={e => setSessione(e.target.value)} placeholder="Sessione (opz.)" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#e2d9f3", fontSize: 13, boxSizing: "border-box", marginBottom: 8 }} />
-          <textarea value={testo} onChange={e => setTesto(e.target.value)} placeholder="Scrivi in prima persona..." style={{ width: "100%", height: 120, padding: 12, borderRadius: 10, border: "1px solid rgba(167,139,250,0.3)", background: "rgba(167,139,250,0.05)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} />
+
+      {/* Form scrittura */}
+      {writing && (
+        <div style={{ padding: "14px 20px", borderBottom: `1px solid ${tab === "privata" ? "rgba(239,68,68,0.2)" : "rgba(167,139,250,0.2)"}`, background: tab === "privata" ? "rgba(239,68,68,0.04)" : "rgba(167,139,250,0.04)", flexShrink: 0 }}>
+          <div style={{ fontSize: 11, color: tab === "privata" ? "#ef4444" : "#a78bfa", fontWeight: 700, marginBottom: 8 }}>
+            {tab === "privata" ? "🔒 Voce privata — visibile solo a te e al Master" : "📖 Voce pubblica — visibile a tutti i giocatori"}
+          </div>
+          <input value={sessione} onChange={e => setSessione(e.target.value)} placeholder="Sessione (opz., es. Sessione 4)" style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#e2d9f3", fontSize: 13, boxSizing: "border-box", marginBottom: 8 }} />
+          <textarea value={testo} onChange={e => setTesto(e.target.value)} placeholder="Scrivi in prima persona..." style={{ width: "100%", height: 120, padding: 12, borderRadius: 10, border: `1px solid ${tab === "privata" ? "rgba(239,68,68,0.3)" : "rgba(167,139,250,0.3)"}`, background: "rgba(255,255,255,0.03)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} />
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button onClick={submitVoce} disabled={!testo.trim()} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: testo.trim() ? "linear-gradient(90deg,#7c3aed,#a855f7)" : "#2a2a3a", color: "#fff", fontWeight: 700, cursor: testo.trim() ? "pointer" : "default", fontSize: 13 }}>📨 Invia</button>
+            <button onClick={submitVoce} disabled={!testo.trim()} style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: testo.trim() ? (tab === "privata" ? "linear-gradient(90deg,#ef4444,#dc2626)" : "linear-gradient(90deg,#7c3aed,#a855f7)") : "#2a2a3a", color: "#fff", fontWeight: 700, cursor: testo.trim() ? "pointer" : "default", fontSize: 13 }}>📨 Pubblica</button>
             <button onClick={() => setWriting(false)} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 13 }}>Annulla</button>
           </div>
         </div>
       )}
+
+      {/* Lista voci */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
         {loading ? <div style={{ color: "#4a4a6a", textAlign: "center", paddingTop: 40 }}>Caricamento...</div> :
-          approvedVoci.length === 0 ? <div style={{ textAlign: "center", color: "#4a4a6a", paddingTop: 60, fontSize: 14 }}>Nessuna voce di diario.</div> :
-          <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
-            {approvedVoci.map(v => <div key={v.id} style={{ padding: "18px 22px", borderRadius: 12, background: "rgba(167,139,250,0.05)", border: "1px solid rgba(167,139,250,0.15)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚔️</div>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#a78bfa", textTransform: "capitalize" }}>{v.player_username}</div>
-                  <div style={{ fontSize: 10, color: "#4a4a6a" }}>{v.sessione && `${v.sessione} · `}{new Date(v.created_at).toLocaleDateString("it-IT")}</div>
-                </div>
-                {isMaster && <button onClick={() => elimina(v.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14 }}>🗑</button>}
+          vociCorrente.length === 0
+            ? <div style={{ textAlign: "center", paddingTop: 60 }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>{tab === "privata" ? "🔒" : "📖"}</div>
+                <div style={{ color: "#4a4a6a", fontSize: 14 }}>Nessuna voce nel diario {tab}.</div>
               </div>
-              <p style={{ margin: 0, fontSize: 13.5, color: "#c8bfe8", lineHeight: 1.85, fontStyle: "italic" }}>"{v.testo}"</p>
-            </div>)}
-          </div>
+            : <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", flexDirection: "column", gap: 14 }}>
+                {vociCorrente.map(v => {
+                  const isPriv = v.tipo === "privata";
+                  const C = isPriv ? "#ef4444" : "#a78bfa";
+                  return (
+                    <div key={v.id} style={{ padding: "18px 22px", borderRadius: 12, background: isPriv ? "rgba(239,68,68,0.04)" : "rgba(167,139,250,0.05)", border: `1px solid ${isPriv ? "rgba(239,68,68,0.18)" : "rgba(167,139,250,0.15)"}` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <div style={{ width: 30, height: 30, borderRadius: 8, background: `${C}18`, border: `1px solid ${C}33`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{isPriv ? "🔒" : "⚔️"}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: C, textTransform: "capitalize" }}>{v.player_username}</div>
+                          <div style={{ fontSize: 10, color: "#4a4a6a" }}>{v.sessione && `${v.sessione} · `}{new Date(v.created_at).toLocaleDateString("it-IT")}</div>
+                        </div>
+                        {(isMaster || v.player_username === player?.username) && (
+                          <button onClick={() => elimina(v.id, v.tipo)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14 }}>🗑</button>
+                        )}
+                      </div>
+                      <p style={{ margin: 0, fontSize: 13.5, color: "#c8bfe8", lineHeight: 1.85, fontStyle: "italic" }}>"{v.testo}"</p>
+                    </div>
+                  );
+                })}
+              </div>
         }
+      </div>
+    </div>
+  );
+}
+
+// ── SEZIONE MAPPA STELLARE ─────────────────────────────────────────────────────
+function MappaSection({ entries, isMaster, onEdit, onDelete }) {
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
+  const [selPin, setSelPin] = useState(null);
+  const [addingPin, setAddingPin] = useState(false);
+  const [newPin, setNewPin] = useState({ label: "", desc: "", x: 50, y: 50 });
+  const containerRef = React.useRef(null);
+
+  const mapEntry = entries[0] || null;
+  const imageUrl = mapEntry?.extra?.imageUrl || null;
+  const pins = mapEntry?.extra?.pins || [];
+
+  async function saveMap(updatedExtra) {
+    if (!mapEntry) return;
+    await sb.from("entries").update({ extra: updatedExtra }).eq("id", mapEntry.id);
+  }
+
+  async function addPin() {
+    if (!newPin.label.trim() || !mapEntry) return;
+    const updatedPins = [...pins, { id: mkId(), ...newPin }];
+    const updatedExtra = { ...mapEntry.extra, pins: updatedPins };
+    await saveMap(updatedExtra);
+    onEdit({ ...mapEntry, extra: updatedExtra });
+    setAddingPin(false);
+    setNewPin({ label: "", desc: "", x: 50, y: 50 });
+  }
+
+  async function deletePin(pinId) {
+    if (!mapEntry) return;
+    const updatedPins = pins.filter(p => p.id !== pinId);
+    const updatedExtra = { ...mapEntry.extra, pins: updatedPins };
+    await saveMap(updatedExtra);
+    onEdit({ ...mapEntry, extra: updatedExtra });
+    setSelPin(null);
+  }
+
+  function handleMapClick(e) {
+    if (!addingPin || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setNewPin(p => ({ ...p, x: Math.round(x), y: Math.round(y) }));
+  }
+
+  if (!mapEntry || !imageUrl) {
+    return (
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20 }}>
+        <div style={{ fontSize: 56 }}>🌠</div>
+        <div style={{ color: "#4a4a6a", fontSize: 14 }}>Nessuna mappa caricata.</div>
+        {isMaster && (
+          <button onClick={() => onEdit(null)} style={{ padding: "10px 24px", borderRadius: 10, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 14 }}>
+            + Carica Mappa
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* Toolbar */}
+      <div style={{ padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+        <button onClick={() => setZoom(z => Math.min(z + 0.2, 4))} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "#e2d9f3", cursor: "pointer", fontSize: 14 }}>＋</button>
+        <button onClick={() => setZoom(z => Math.max(z - 0.2, 0.3))} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "#e2d9f3", cursor: "pointer", fontSize: 14 }}>－</button>
+        <button onClick={() => { setZoom(1); setOffset({ x: 0, y: 0 }); }} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.12)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 11 }}>Reset</button>
+        <span style={{ fontSize: 11, color: "#4a4a6a" }}>{Math.round(zoom * 100)}%</span>
+        <div style={{ flex: 1 }} />
+        {isMaster && !addingPin && (
+          <button onClick={() => setAddingPin(true)} style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: "rgba(167,139,250,0.2)", color: "#a78bfa", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>📍 Aggiungi punto</button>
+        )}
+        {isMaster && (
+          <button onClick={() => onEdit(mapEntry)} style={{ padding: "5px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>✏️ Modifica</button>
+        )}
+      </div>
+
+      {/* Form aggiungi pin */}
+      {addingPin && (
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(167,139,250,0.2)", background: "rgba(167,139,250,0.05)", flexShrink: 0, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: "#a78bfa" }}>📍 Clicca sulla mappa per posizionare, poi compila:</span>
+          <input value={newPin.label} onChange={e => setNewPin(p => ({ ...p, label: e.target.value }))} placeholder="Nome sistema/luogo..." style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(167,139,250,0.3)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 12, width: 180 }} />
+          <input value={newPin.desc} onChange={e => setNewPin(p => ({ ...p, desc: e.target.value }))} placeholder="Descrizione breve..." style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(167,139,250,0.3)", background: "rgba(255,255,255,0.05)", color: "#fff", fontSize: 12, width: 200 }} />
+          <span style={{ fontSize: 11, color: "#4a4a6a" }}>Pos: {newPin.x}%, {newPin.y}%</span>
+          <button onClick={addPin} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: "#a78bfa", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Salva</button>
+          <button onClick={() => setAddingPin(false)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "#8b7aa8", cursor: "pointer", fontSize: 12 }}>✕</button>
+        </div>
+      )}
+
+      {/* Mappa */}
+      <div style={{ flex: 1, overflow: "hidden", position: "relative", background: "#050510", cursor: dragging ? "grabbing" : (addingPin ? "crosshair" : "grab") }}
+        onMouseDown={e => { if (!addingPin) { setDragging(true); setStartPos({ x: e.clientX - offset.x, y: e.clientY - offset.y }); } }}
+        onMouseMove={e => { if (dragging) setOffset({ x: e.clientX - startPos.x, y: e.clientY - startPos.y }); }}
+        onMouseUp={() => setDragging(false)}
+        onMouseLeave={() => setDragging(false)}
+        onWheel={e => setZoom(z => Math.max(0.3, Math.min(4, z - e.deltaY * 0.001)))}
+        onClick={handleMapClick}
+      >
+        <div ref={containerRef} style={{ position: "absolute", top: "50%", left: "50%", transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${zoom})`, transformOrigin: "center", transition: dragging ? "none" : "transform 0.1s" }}>
+          <img src={imageUrl} alt="Mappa Stellare" style={{ display: "block", maxWidth: "80vw", maxHeight: "75vh", userSelect: "none", pointerEvents: "none" }} draggable={false} />
+          {/* Pin */}
+          {pins.map(pin => (
+            <div key={pin.id} onClick={e => { e.stopPropagation(); if (!addingPin) setSelPin(selPin?.id === pin.id ? null : pin); }}
+              style={{ position: "absolute", left: `${pin.x}%`, top: `${pin.y}%`, transform: "translate(-50%, -100%)", cursor: "pointer", zIndex: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{ background: "rgba(167,139,250,0.9)", border: "2px solid #a78bfa", borderRadius: "50%", width: 12, height: 12, boxShadow: "0 0 8px rgba(167,139,250,0.8)" }} />
+                <div style={{ fontSize: 10, color: "#e2d9f3", background: "rgba(15,15,26,0.85)", padding: "2px 6px", borderRadius: 4, whiteSpace: "nowrap", marginTop: 2, border: "1px solid rgba(167,139,250,0.3)" }}>{pin.label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Popup pin selezionato */}
+        {selPin && (
+          <div style={{ position: "absolute", bottom: 20, left: 20, background: "#12122a", border: "1px solid rgba(167,139,250,0.4)", borderRadius: 12, padding: "14px 18px", maxWidth: 280, zIndex: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#a78bfa" }}>📍 {selPin.label}</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {isMaster && <button onClick={() => deletePin(selPin.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 13 }}>🗑</button>}
+                <button onClick={() => setSelPin(null)} style={{ background: "none", border: "none", color: "#6d5fa0", cursor: "pointer", fontSize: 13 }}>✕</button>
+              </div>
+            </div>
+            {selPin.desc && <div style={{ fontSize: 12, color: "#8b7aa8", lineHeight: 1.5 }}>{selPin.desc}</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── SEZIONE AI MASTER ──────────────────────────────────────────────────────────
+function AIMasterSection({ isMaster, player, allEntries, unlocks, playerUnlocks }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const chatRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [messages]);
+
+  function buildContext() {
+    // Raccoglie tutto ciò che il giocatore corrente può vedere
+    const sections = [];
+
+    // Razze visibili
+    const razzeEntries = allEntries["razze"] || [];
+    const razzeVis = isMaster ? razzeEntries : razzeEntries.filter(e => {
+      const meta = getRazzaMeta(e.title);
+      if (!meta) return false;
+      return meta.id === player?.razza || playerUnlocks.includes(meta.id);
+    });
+    if (razzeVis.length) {
+      sections.push("## RAZZE\n" + razzeVis.map(e => {
+        let txt = `### ${e.title}\n${e.public_content || ""}`;
+        if (isMaster && e.private_content) txt += `\n[RISERVATO MASTER]: ${e.private_content}`;
+        return txt;
+      }).join("\n\n"));
+    }
+
+    // Campagna
+    const campagna = allEntries["campagna"] || [];
+    if (campagna.length) {
+      sections.push("## CAMPAGNA\n" + campagna.map(e => {
+        let txt = `### ${e.title}\n${e.public_content || ""}`;
+        if (isMaster && e.private_content) txt += `\n[RISERVATO MASTER]: ${e.private_content}`;
+        return txt;
+      }).join("\n\n"));
+    }
+
+    // PNG
+    const png = allEntries["png"] || [];
+    if (png.length) {
+      sections.push("## PNG\n" + png.map(e => {
+        let txt = `### ${e.title}\n${e.public_content || ""}`;
+        if (isMaster && e.private_content) txt += `\n[RISERVATO MASTER]: ${e.private_content}`;
+        return txt;
+      }).join("\n\n"));
+    }
+
+    // Fazioni, Eventi, Missioni
+    ["fazioni","eventi","missioni"].forEach(sec => {
+      const items = allEntries[sec] || [];
+      if (items.length) {
+        sections.push(`## ${sec.toUpperCase()}\n` + items.map(e => {
+          let txt = `### ${e.title}\n${e.public_content || ""}`;
+          if (isMaster && e.private_content) txt += `\n[RISERVATO MASTER]: ${e.private_content}`;
+          return txt;
+        }).join("\n\n"));
+      }
+    });
+
+    // Storia / Timeline
+    const storia = allEntries["storia"] || [];
+    if (storia.length) {
+      sections.push("## STORIA\n" + storia.map(e => e.public_content || "").join("\n\n"));
+    }
+
+    return sections.join("\n\n---\n\n");
+  }
+
+  async function sendMessage() {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setLoading(true);
+
+    const context = buildContext();
+    const whoAmI = isMaster ? "L'Assoluto (il Master della campagna)" : `${player?.username}, un giocatore che gioca la razza ${player?.razza}`;
+    const systemPrompt = `Sei l'AI Master della campagna GDR "Dark Matter — Il Nucleo Gemino", un gioco di ruolo fantascientifico.
+
+Stai rispondendo a: ${whoAmI}.
+
+${isMaster
+  ? "Hai accesso a TUTTE le informazioni della campagna, incluse le note riservate del Master."
+  : `Puoi rispondere SOLO usando le informazioni qui sotto. Se ti viene chiesto qualcosa che non è nelle informazioni disponibili (razze non sbloccate, note segrete, ecc.), rispondi con tono scherzoso ma fermo che l'informazione è classificata, ad esempio: "Mi dispiace, l'informazione è classificata, al momento non puoi accedervi, stronzetto!" oppure varianti simili.`}
+
+Rispondi sempre in italiano, con tono narrativo e coinvolgente, come un Master GDR esperto.
+
+--- INFORMAZIONI DISPONIBILI ---
+${context}
+--- FINE INFORMAZIONI ---`;
+
+    try {
+      const history = messages.map(m => ({ role: m.role, content: m.content }));
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: [...history, { role: "user", content: userMsg }]
+        })
+      });
+      const data = await response.json();
+      const reply = data.content?.[0]?.text || "Errore nella risposta.";
+      setMessages(prev => [...prev, { role: "assistant", content: reply }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "assistant", content: "Errore di connessione con l'AI." }]);
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ padding: "12px 20px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(124,58,237,0.2)", border: "1px solid rgba(124,58,237,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🤖</div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#e2d9f3" }}>AI Master</div>
+          <div style={{ fontSize: 11, color: "#4a4a6a" }}>
+            {isMaster ? "Accesso completo a tutte le informazioni" : `Accesso limitato al profilo di ${player?.username}`}
+          </div>
+        </div>
+        {messages.length > 0 && (
+          <button onClick={() => setMessages([])} style={{ marginLeft: "auto", padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "#6d5fa0", cursor: "pointer", fontSize: 11 }}>🗑 Pulisci</button>
+        )}
+      </div>
+
+      {/* Chat */}
+      <div ref={chatRef} style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: "center", paddingTop: 40 }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>🤖</div>
+            <div style={{ color: "#4a4a6a", fontSize: 14, marginBottom: 8 }}>Cosa vuoi sapere sulla campagna?</div>
+            <div style={{ color: "#3a3a5a", fontSize: 12 }}>
+              {isMaster ? "Hai accesso a tutto il lore, incluse le note segrete." : "Posso rispondere solo a ciò che puoi vedere nel sito."}
+            </div>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{
+              maxWidth: "75%", padding: "12px 16px", borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+              background: m.role === "user" ? "rgba(124,58,237,0.25)" : "rgba(255,255,255,0.05)",
+              border: m.role === "user" ? "1px solid rgba(124,58,237,0.4)" : "1px solid rgba(255,255,255,0.08)",
+              fontSize: 13.5, color: "#c8bfe8", lineHeight: 1.7, whiteSpace: "pre-wrap"
+            }}>
+              {m.role === "assistant" && <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, marginBottom: 6, letterSpacing: 1 }}>🤖 AI MASTER</div>}
+              {m.content}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display: "flex", justifyContent: "flex-start" }}>
+            <div style={{ padding: "12px 16px", borderRadius: "14px 14px 14px 4px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, marginBottom: 6 }}>🤖 AI MASTER</div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {[0,1,2].map(j => <div key={j} style={{ width: 6, height: 6, borderRadius: "50%", background: "#7c3aed", animation: "pulse 1s infinite", animationDelay: `${j * 0.2}s`, opacity: 0.6 }} />)}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", gap: 8, flexShrink: 0 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
+          placeholder="Chiedi qualcosa alla campagna..."
+          disabled={loading}
+          style={{ flex: 1, padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.05)", color: "#e2d9f3", fontSize: 13, outline: "none" }}
+        />
+        <button onClick={sendMessage} disabled={loading || !input.trim()} style={{ padding: "10px 18px", borderRadius: 10, border: "none", background: input.trim() && !loading ? "linear-gradient(90deg,#7c3aed,#a855f7)" : "#2a2a3a", color: "#fff", fontWeight: 700, cursor: input.trim() && !loading ? "pointer" : "default", fontSize: 13 }}>
+          {loading ? "..." : "➤"}
+        </button>
       </div>
     </div>
   );
@@ -818,6 +1173,7 @@ function EntryEditor({ entry, activeSection, onSave, onCancel, accent }) {
 
   const isPng = activeSection === "png";
   const isPg = activeSection === "pg";
+  const isMappa = activeSection === "mappa";
 
   return (
     <div style={{ maxWidth: 700, margin: "0 auto" }}>
@@ -850,12 +1206,20 @@ function EntryEditor({ entry, activeSection, onSave, onCancel, accent }) {
         </div>
       )}
 
-      <div style={{ marginBottom: 16 }}>
+      {isMappa && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ fontSize: 12, color: "#7c3aed", display: "block", marginBottom: 6 }}>🌠 URL Immagine Mappa</label>
+          <input value={e.extra?.imageUrl || ""} onChange={ev => updExtra("imageUrl", ev.target.value)} placeholder="https://... (link diretto all'immagine)" style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(124,58,237,0.3)", background: "rgba(124,58,237,0.05)", color: "#e2d9f3", fontSize: 13, boxSizing: "border-box" }} />
+          <div style={{ fontSize: 11, color: "#4a4a6a", marginTop: 4 }}>Carica l'immagine su Imgur, Google Drive (link diretto) o simili, poi incolla il link qui.</div>
+        </div>
+      )}
+
+      {!isMappa && <div style={{ marginBottom: 16 }}>
         <label style={{ fontSize: 12, color: "#0ea5e9", display: "block", marginBottom: 6 }}>👥 Contenuto Pubblico</label>
         <textarea value={e.public_content} onChange={ev => upd("public_content", ev.target.value)} placeholder="Info pubbliche..." style={{ width: "100%", height: 200, padding: 14, borderRadius: 10, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.04)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} />
-      </div>
+      </div>}
 
-      <div style={{ marginBottom: 24 }}>
+      {!isMappa && <div style={{ marginBottom: 24 }}>
         <label style={{ fontSize: 12, color: "#a855f7", display: "block", marginBottom: 6 }}>🔐 Note Riservate (solo L'Assoluto)</label>
         <textarea value={e.private_content} onChange={ev => upd("private_content", ev.target.value)} placeholder="Segreti, twist, note..." style={{ width: "100%", height: 180, padding: 14, borderRadius: 10, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(124,58,237,0.06)", color: "#e2d9f3", fontSize: 13, lineHeight: 1.6, resize: "vertical", boxSizing: "border-box" }} />
       </div>
@@ -1123,7 +1487,7 @@ function CambioPasswordModal({ username, isMaster, onClose }) {
   const playerUnlocks = isMaster ? unlocks : (unlocks[session.username] || []);
 
   const PRIVATE_SECTIONS = ["campagna","png","fazioni","eventi","missioni"];
-  const SPECIAL_SECTIONS = ["razze","storia","campagna","pg","png","artefatti","missioni","diario"];
+  const SPECIAL_SECTIONS = ["razze","storia","campagna","pg","png","artefatti","missioni","diario","mappa","aimaster"];
 
   const sidebarExtras = [
     ...(isMaster ? [{ id: "giocatori", icon: "👥", label: "Gestione Giocatori", color: "#22c55e" }] : []),
@@ -1194,6 +1558,8 @@ function CambioPasswordModal({ username, isMaster, onClose }) {
           {view === "section" && activeSection === "eventi" && <GenericDualSection entries={sectionEntries} isMaster={isMaster} accent="#f59e0b" sectionIcon="⚡" sectionLabel="Eventi Importanti" onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
           {view === "section" && activeSection === "missioni" && <MissioniSection entries={sectionEntries} isMaster={isMaster} player={session} onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
           {view === "section" && activeSection === "diario" && <DiarioSection isMaster={isMaster} player={session} allPgEntries={pgEntries} />}
+          {view === "section" && activeSection === "mappa" && <MappaSection entries={sectionEntries} isMaster={isMaster} onEdit={e => { setEditingEntry(e || null); setView("edit"); }} onDelete={deleteEntry} />}
+          {view === "section" && activeSection === "aimaster" && <AIMasterSection isMaster={isMaster} player={session} allEntries={entries} unlocks={unlocks} playerUnlocks={playerUnlocks} />}
           {view === "section" && activeSection === "manuale" && <GenericDualSection entries={sectionEntries} isMaster={isMaster} accent="#00b4d8" sectionIcon="📖" sectionLabel="Manuale" onEdit={e => { setEditingEntry(e); setView("edit"); }} onDelete={deleteEntry} />}
         </div>
       </div>
