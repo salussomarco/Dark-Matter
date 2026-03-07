@@ -164,13 +164,7 @@ function TimelineView({ entries, isMaster, onAdd, onDelete }) {
  if (!epoche.length) return <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>{isMaster && <div style={{ padding: "8px 16px", display: "flex", justifyContent: "flex-end", gap: 8 }}>{entries.map(e => <span key={e.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 8, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)" }}><span style={{ fontSize: 12, color: "#8b7aa8" }}>{e.title}</span><button onClick={() => onDelete(e.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 13, padding: 0 }}>🗑</button></span>)}<button onClick={onAdd} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>+ Aggiungi</button></div>}<Empty icon="📜" text="Nessuna timeline." /></div>;
   const onMD = e => { setDragging(true); setStartX(e.pageX - scrollRef.current.offsetLeft); setScrollLeft(scrollRef.current.scrollLeft); };
   const onMM = e => { if (!dragging) return; e.preventDefault(); scrollRef.current.scrollLeft = scrollLeft - (e.pageX - scrollRef.current.offsetLeft - startX); };
-const onMU = () => setDragging(false);
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {isMaster && <div style={{ padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", justifyContent: "flex-end", gap: 8, flexShrink: 0 }}>
-        {entries.map(e => <button key={e.id} onClick={() => onDelete(e.id)} style={{ padding: "4px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 12 }}>🗑 {e.title}</button>)}
-        <button onClick={onAdd} style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>+ Aggiungi</button>
-      </div>}
+  const onMU = () => setDragging(false);
   if (selEvent) {
     const meta = getRazzaMeta(selEvent.razza), C = meta ? meta.colore : "#a78bfa";
     return (
